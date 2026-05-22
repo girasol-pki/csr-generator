@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import { zodResolver } from "@hookform/resolvers/zod"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 
 type DownloadedStatus = {
 	privateKey: boolean,
@@ -26,6 +27,7 @@ type CSRGenerationParams = {
 	street: string,
 	email: string,
 	commonName: string,
+	modulusLength: number,
 }
 
 const formSchema = z.object({
@@ -38,6 +40,9 @@ const formSchema = z.object({
 	street: z.string().min(1, "Este campo es requerido"),
 	email: z.string().email("El email ingresado no es válido"),
 	commonName: z.string().min(1, "Este campo es requerido"),
+	modulusLength: z.string().refine((value) => ["2048", "3072"].includes(value), {
+		message: "El tamaño de clave debe ser 2048 o 3072",
+	}),
 })
 
 
@@ -86,6 +91,7 @@ export function GenerateCSRForm({
 			street: "",
 			email: "",
 			commonName: "",
+			modulusLength: "2048",
 		},
 	})
 
@@ -132,6 +138,7 @@ export function GenerateCSRForm({
 			street: values.street,
 			email: values.email,
 			commonName: values.commonName,
+			modulusLength: Number(values.modulusLength),
 		}
 		await generateCSR(csrData);
 		resetDownloadedStatus();
@@ -141,6 +148,30 @@ export function GenerateCSRForm({
 		<Form {...form} >
 			<form className={cn(className, "space-y-6")} onSubmit={form.handleSubmit(onSubmit)}>
 				<div className="grid grid-cols-10 gap-6">
+					<FormField
+						control={form.control}
+						name="modulusLength"
+						render={({ field }) => (
+							<FormItem className="col-span-10">
+								<FormLabel>Tamaño de clave</FormLabel>
+								<Select onValueChange={field.onChange} value={field.value}>
+									<FormControl>
+										<SelectTrigger>
+											<SelectValue
+												placeholder="Selecciona un tamaño de clave"
+											/>
+										</SelectTrigger>
+									</FormControl>
+									<SelectContent>
+										<SelectItem className="text-sm" key="2048" value={"2048"}>2048</SelectItem>
+										<SelectItem className="text-sm" key="3072" value={"3072"}>3072</SelectItem>
+									</SelectContent>
+								</Select>
+								<FormMessage />
+							</FormItem>
+						)}
+					/>
+
 					<FormField
 						control={form.control}
 						name="country"

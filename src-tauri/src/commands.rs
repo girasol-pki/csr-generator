@@ -30,11 +30,12 @@ pub struct CSRGenerationParams {
     street: String,
     email: String,
     common_name: String,
+    modulus_length: Option<u32>,
 }
 
 #[tauri::command]
 pub fn generate_csr(data: CSRGenerationParams) -> Result<PrivateKeyWithCSR, GenerationError> {
-    let key_pair_res = Rsa::generate(2048);
+    let key_pair_res = Rsa::generate(data.modulus_length.unwrap_or(2048));
     if let Err(_) = key_pair_res {
         let error = GenerationError {
             message: "No se pudo generar el par de claves".to_string(),
