@@ -1,0 +1,36 @@
+# Valida cada push a main y cada PR, y deja en main la caché de Cargo que usan los releases.
+# Sin secrets: los PRs desde forks corren con permisos de solo lectura.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  check:
+    runs-on: windows-2025
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup
+
+      # Mismo perfil (release) y mismos pasos que el release para que la caché le sirva.
+      - name: Tests de Rust
+        working-directory: src-tauri
+        run: cargo test --release --lib --locked
+
+      - run: pnpm tauri build --no-bundle

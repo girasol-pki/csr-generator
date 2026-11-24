@@ -21,6 +21,9 @@ concurrency:
   group: microsoft-store-release
   cancel-in-progress: false
 
+env:
+  CARGO_INCREMENTAL: "0"
+
 jobs:
   build:
     runs-on: windows-2025
@@ -38,34 +41,12 @@ jobs:
             throw "El tag $env:GITHUB_REF_NAME no coincide con la versión $version de tauri.conf.json"
           }
 
-      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
-        with:
-          version: 11.28.11
+      - uses: ./.github/actions/setup
 
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 24.22.1
-          cache: pnpm
-
-      - name: Instalar Rust
-        shell: pwsh
-        run: |
-          rustup toolchain install 1.99.1 --profile minimal
-          rustup default 1.99.1
-
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            src-tauri/target
-          key: cargo-${{ runner.os }}-${{ hashFiles('src-tauri/Cargo.lock') }}
-
-      - run: pnpm install --frozen-lockfile
-
+      # --release reutiliza lo que compila después `tauri build` (y la caché que deja el CI de main).
       - name: Tests de Rust
         working-directory: src-tauri
-        run: cargo test --lib --locked
+        run: cargo test --release --lib --locked
 
       # OpenSSL vendored se compila con el Strawberry Perl que trae la imagen de Windows.
       - run: pnpm tauri build --no-bundle
