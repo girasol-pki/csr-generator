@@ -13,8 +13,9 @@ $tauriDir = Split-Path $msixDir -Parent
 $exe = Join-Path $tauriDir "target\release\girasol-csr-generator.exe"
 if (-not (Test-Path $exe)) { throw "No existe $exe; corre antes 'pnpm tauri build --no-bundle'." }
 
-$appVersion = (Get-Content (Join-Path $tauriDir "tauri.conf.json") -Raw | ConvertFrom-Json).version
-if ($appVersion -notmatch '^\d+\.\d+\.\d+$') { throw "Versión inválida en tauri.conf.json: $appVersion" }
+# package.json es la única fuente de la versión (tauri.conf.json la lee de ahí).
+$appVersion = (Get-Content (Join-Path (Split-Path $tauriDir -Parent) "package.json") -Raw | ConvertFrom-Json).version
+if ($appVersion -notmatch '^\d+\.\d+\.\d+$') { throw "Versión inválida en package.json: $appVersion" }
 
 $sdkBin = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Directory |
     Where-Object { Test-Path (Join-Path $_.FullName "x64\makeappx.exe") } |

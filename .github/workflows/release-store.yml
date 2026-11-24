@@ -1,4 +1,4 @@
-# Publica en la Microsoft Store al pushear un tag vX.Y.Z (igual a la versión de tauri.conf.json).
+# Publica en la Microsoft Store al pushear un tag vX.Y.Z (igual a la versión de package.json).
 #
 # Repo público, así que:
 # - Actions fijadas por SHA de commit (un tag se puede mover); el comentario indica la versión.
@@ -36,9 +36,9 @@ jobs:
       - name: Verificar que el tag coincide con la versión
         shell: pwsh
         run: |
-          $version = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
           if ("v$version" -ne $env:GITHUB_REF_NAME) {
-            throw "El tag $env:GITHUB_REF_NAME no coincide con la versión $version de tauri.conf.json"
+            throw "El tag $env:GITHUB_REF_NAME no coincide con la versión $version de package.json"
           }
 
       - uses: ./.github/actions/setup

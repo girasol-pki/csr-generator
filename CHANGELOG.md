@@ -1,7 +1,7 @@
 # Changelog
 
 Cada sección `## [X.Y.Z]` se publica tal cual como "Novedades de esta versión" en la Microsoft Store
-(máximo 1500 caracteres). El release falla si la versión de `tauri.conf.json` no tiene sección aquí.
+(máximo 1500 caracteres). El release falla si la versión de `package.json` no tiene sección aquí.
 
 ## [1.2.0] - 2026-11-24
 
