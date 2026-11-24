@@ -21,7 +21,7 @@ export function AboutPage() {
 				<span className="font-semibold">Código fuente: </span>
 				<a
 					className="text-blue-500 dark:text-blue-600 underline visited:text-purple-500 dark:visited:text-purple-400 group"
-					href="https://github.com/firmeasy-legal/firmeasy-csr-generator"
+					href="https://github.com/girasol-pki/csr-generator"
 					target="_blank"
 				>
 					github.com

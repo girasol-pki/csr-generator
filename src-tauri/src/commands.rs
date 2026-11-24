@@ -175,9 +175,8 @@ mod tests {
             .next()
             .expect("el atributo existe en el CSR")
             .data()
-            .as_utf8()
-            .expect("el atributo es texto")
             .to_string()
+            .expect("el atributo es texto")
     }
 
     fn generated_csr(params: CSRGenerationParams) -> X509Req {

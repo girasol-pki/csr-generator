@@ -3,6 +3,8 @@ import { GenerateCSRForm } from "@/components/GenerateCSRForm";
 import { Layout } from "@/layout";
 import { PrivateKeyWithCSR } from "@/models";
 import { useEffect, useState } from "react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { ask } from "@tauri-apps/plugin-dialog";
 
 const INITIAL_DOWNLOADED_STATUS = {
 	privateKey: false,
@@ -14,17 +16,11 @@ export function GenerateCSRPage() {
 	const [downloadedStatus, setDownloadedStatus] = useState(INITIAL_DOWNLOADED_STATUS)
 
 	const setPrivateKeyIsDownloaded = () => {
-		setDownloadedStatus({
-			...downloadedStatus,
-			privateKey: true,
-		})
+		setDownloadedStatus((status) => ({ ...status, privateKey: true }))
 	}
 
 	const setCSRIsDownloaded = () => {
-		setDownloadedStatus({
-			...downloadedStatus,
-			csr: true,
-		})
+		setDownloadedStatus((status) => ({ ...status, csr: true }))
 	}
 
 	const resetDownloadedStatus = () => {
@@ -39,6 +35,28 @@ export function GenerateCSRPage() {
 		}
 	}, [downloadedStatus, privateKeyWithCSR])
 
+	// privateKeyWithCSR se limpia al guardar todo: si sigue presente, algo quedó sin guardar.
+	useEffect(() => {
+		if (!privateKeyWithCSR) return;
+		const privateKeyPending = privateKeyWithCSR.privateKeyPem !== null && !downloadedStatus.privateKey;
+		const message = privateKeyPending
+			? "Aún no guardas la Private Key. Si cierras ahora se perderá y el certificado que solicites con este CSR no servirá."
+			: "Aún no guardas el CSR. Si cierras ahora tendrás que generar uno nuevo.";
+
+		const unlisten = getCurrentWindow().onCloseRequested(async (event) => {
+			const close = await ask(message, {
+				title: "¿Cerrar sin guardar?",
+				kind: "warning",
+				okLabel: "Cerrar de todos modos",
+				cancelLabel: "Volver",
+			});
+			if (!close) event.preventDefault();
+		});
+		return () => {
+			void unlisten.then((stop) => stop());
+		};
+	}, [downloadedStatus, privateKeyWithCSR])
+
 	return (
 		<Layout>
 			<div className="mb-10">
@@ -49,7 +67,7 @@ export function GenerateCSRPage() {
 			</div>
 			<div className="flex gap-10">
 				<GenerateCSRForm
-					className="w-[480px] flex-shrink-0"
+					className="w-[480px] shrink-0"
 					privateKeyWithCSR={privateKeyWithCSR}
 					setPrivateKeyWithCSR={setPrivateKeyWithCSR}
 					downloadedStatus={downloadedStatus}
@@ -58,6 +76,7 @@ export function GenerateCSRPage() {
 				<CSRGenerationResult
 					className="flex-1 min-w-0"
 					privateKeyWithCSR={privateKeyWithCSR}
+					privateKeyDownloaded={downloadedStatus.privateKey}
 					setPrivateKeyIsDownloaded={setPrivateKeyIsDownloaded}
 					setCSRIsDownloaded={setCSRIsDownloaded}
 				/>

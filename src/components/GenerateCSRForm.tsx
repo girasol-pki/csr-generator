@@ -1,6 +1,6 @@
-import { Dispatch, SetStateAction, useMemo, useState } from "react";
+import { Dispatch, SetStateAction, useEffect, useMemo, useState } from "react";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "./ui/form";
-import { ChevronDownIcon, ChevronRightIcon, FolderOpenIcon, InfoIcon, LoaderIcon, RefreshCwIcon, ShieldIcon, ZapIcon } from "lucide-react";
+import { ChevronDownIcon, ChevronRightIcon, FolderOpenIcon, InfoIcon, LoaderIcon, RefreshCwIcon, SlidersHorizontalIcon, ZapIcon } from "lucide-react";
 
 import { Button } from "./ui/button"
 import { Input } from "./ui/input";
@@ -46,9 +46,25 @@ const normalizeSubjectText = (value: string) => value.normalize("NFC").replace(/
 
 const MAX_STATE_LENGTH = 128;
 
-const tooLong = (max: number) => (value: string) => ({
-	message: `Máximo ${max} caracteres (tienes ${characterCount(value)})`,
-});
+const MAX_CHARS = {
+	region: MAX_STATE_LENGTH,
+	province: MAX_STATE_LENGTH,
+	district: 128,
+	organization: 128,
+	organizationUnit: 128,
+	street: 256,
+	email: 255,
+	commonName: 128,
+} as const;
+
+type LimitedField = keyof typeof MAX_CHARS;
+
+const isLimitedField = (name: string): name is LimitedField => name in MAX_CHARS;
+
+const withinChars = (max: number) => (value: string, ctx: z.RefinementCtx) => {
+	const count = characterCount(value);
+	if (count > max) ctx.addIssue({ code: "custom", message: `Máximo ${max} caracteres (tienes ${count})` });
+};
 
 const subjectText = (max: number) =>
 	z.string()
@@ -56,24 +72,23 @@ const subjectText = (max: number) =>
 		.pipe(
 			z.string()
 				.min(1, "Este campo es requerido")
-				.refine((value) => characterCount(value) <= max, tooLong(max)),
+				.superRefine(withinChars(max)),
 		);
 
 const stateOf = (region: string, province: string) => `${region}-${province}`;
 
 const baseSchema = {
 	country: z.string().length(2),
-	region: subjectText(MAX_STATE_LENGTH),
-	province: subjectText(MAX_STATE_LENGTH),
-	district: subjectText(128),
-	organization: subjectText(128),
-	organizationUnit: subjectText(128),
-	street: subjectText(256),
+	region: subjectText(MAX_CHARS.region),
+	province: subjectText(MAX_CHARS.province),
+	district: subjectText(MAX_CHARS.district),
+	organization: subjectText(MAX_CHARS.organization),
+	organizationUnit: subjectText(MAX_CHARS.organizationUnit),
+	street: subjectText(MAX_CHARS.street),
 	email: z.string()
 		.trim()
-		.email("El email ingresado no es válido")
-		.refine((value) => characterCount(value) <= 255, tooLong(255)),
-	commonName: subjectText(128),
+		.pipe(z.email("El email ingresado no es válido").superRefine(withinChars(MAX_CHARS.email))),
+	commonName: subjectText(MAX_CHARS.commonName),
 	modulusLength: z.string().refine((value) => ["2048", "3072"].includes(value), {
 		message: "El tamaño de clave debe ser 2048 o 3072",
 	}),
@@ -92,7 +107,7 @@ const formSchema = z
 		const state = stateOf(values.region, values.province);
 		if (characterCount(state) > MAX_STATE_LENGTH) {
 			ctx.addIssue({
-				code: z.ZodIssueCode.custom,
+				code: "custom",
 				path: ["province"],
 				message: `Región y provincia juntas: máximo ${MAX_STATE_LENGTH} caracteres (tienen ${characterCount(state)})`,
 			})
@@ -100,16 +115,16 @@ const formSchema = z
 
 		if (!values.pkcs11Enabled) return;
 		if (!values.driverPath) {
-			ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["driverPath"], message: "Selecciona un driver PKCS#11" })
+			ctx.addIssue({ code: "custom", path: ["driverPath"], message: "Selecciona un driver PKCS#11" })
 		}
 		if (!values.slotId) {
-			ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["slotId"], message: "Selecciona un slot" })
+			ctx.addIssue({ code: "custom", path: ["slotId"], message: "Selecciona un slot" })
 		}
 		if (!values.pin) {
-			ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["pin"], message: "Ingresa el PIN del token" })
+			ctx.addIssue({ code: "custom", path: ["pin"], message: "Ingresa el PIN del token" })
 		}
 		if (!values.keyLabel || values.keyLabel.trim().length === 0) {
-			ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["keyLabel"], message: "Ingresa una etiqueta para la llave" })
+			ctx.addIssue({ code: "custom", path: ["keyLabel"], message: "Ingresa una etiqueta para la llave" })
 		}
 	})
 
@@ -164,7 +179,7 @@ const formFieldByBackendField: Record<z.infer<typeof backendFieldSchema>, keyof 
 	pin: "pin",
 }
 
-const pkcs11Fields: ReadonlyArray<keyof FormValues> = ["driverPath", "slotId", "pin", "keyLabel"]
+const advancedFields: ReadonlyArray<keyof FormValues> = ["modulusLength", "driverPath", "slotId", "pin", "keyLabel"]
 
 const generationErrorSchema = z.discriminatedUnion("kind", [
 	z.object({ kind: z.literal("field"), field: backendFieldSchema, message: z.string() }),
@@ -239,6 +254,23 @@ export function GenerateCSRForm({
 		},
 	})
 
+	// El resto de errores aparece al salir del campo; pasarse del límite se avisa en el acto
+	// para no dejar escribir de más sin aviso.
+	useEffect(() => {
+		const subscription = form.watch((values, { name, type }) => {
+			if (type !== "change" || !name || !isLimitedField(name)) return;
+			const overField = characterCount(normalizeSubjectText(values[name] ?? "")) > MAX_CHARS[name];
+			const isStatePart = name === "region" || name === "province";
+			const overState = isStatePart
+				&& characterCount(stateOf(values.region ?? "", values.province ?? "")) > MAX_STATE_LENGTH;
+			const targets = new Set<LimitedField>();
+			if (overField || form.getFieldState(name).invalid) targets.add(name);
+			if (overState || (isStatePart && form.getFieldState("province").invalid)) targets.add("province");
+			if (targets.size > 0) void form.trigger([...targets]);
+		});
+		return () => subscription.unsubscribe();
+	}, [form]);
+
 	const pkcs11Enabled = form.watch("pkcs11Enabled");
 	const driverPath = form.watch("driverPath");
 
@@ -257,9 +289,9 @@ export function GenerateCSRForm({
 		setSlots([]);
 	}
 
-	// Los campos PKCS#11 viven en un panel colapsable: si el error es de uno de ellos, se abre para que se vea.
+	// Las opciones avanzadas viven en un panel colapsable: si el error es de una de ellas, se abre para que se vea.
 	function revealFieldsWithErrors(fields: ReadonlyArray<keyof FormValues>) {
-		if (fields.some((field) => pkcs11Fields.includes(field))) setAdvancedOpen(true);
+		if (fields.some((field) => advancedFields.includes(field))) setAdvancedOpen(true);
 	}
 
 	function reportFailure(title: string, error: unknown) {
@@ -272,7 +304,7 @@ export function GenerateCSRForm({
 	}
 
 	function onInvalid(errors: FieldErrors<FormValues>) {
-		revealFieldsWithErrors(pkcs11Fields.filter((field) => field in errors));
+		revealFieldsWithErrors(advancedFields.filter((field) => field in errors));
 	}
 
 	async function listSlots() {
@@ -372,30 +404,6 @@ export function GenerateCSRForm({
 		<Form {...form} >
 			<form className={cn(className, "space-y-6")} onSubmit={form.handleSubmit(onSubmit, onInvalid)}>
 				<div className="grid grid-cols-10 gap-6">
-					<FormField
-						control={form.control}
-						name="modulusLength"
-						render={({ field }) => (
-							<FormItem className="col-span-10">
-								<FormLabel>Tamaño de clave</FormLabel>
-								<Select onValueChange={field.onChange} value={field.value}>
-									<FormControl>
-										<SelectTrigger>
-											<SelectValue
-												placeholder="Selecciona un tamaño de clave"
-											/>
-										</SelectTrigger>
-									</FormControl>
-									<SelectContent>
-										<SelectItem className="text-sm" key="2048" value={"2048"}>2048</SelectItem>
-										<SelectItem className="text-sm" key="3072" value={"3072"}>3072</SelectItem>
-									</SelectContent>
-								</Select>
-								<FormMessage />
-							</FormItem>
-						)}
-					/>
-
 					<FormField
 						control={form.control}
 						name="country"
@@ -524,15 +532,37 @@ export function GenerateCSRForm({
 						onClick={() => setAdvancedOpen((v) => !v)}
 					>
 						{advancedOpen
-							? <ChevronDownIcon className="w-4 h-4 me-2 flex-shrink-0" />
-							: <ChevronRightIcon className="w-4 h-4 me-2 flex-shrink-0" />}
-						<ShieldIcon className="w-4 h-4 me-2 flex-shrink-0" />
-						<span>Modo avanzado: generar llave en token PKCS#11</span>
+							? <ChevronDownIcon className="w-4 h-4 me-2 shrink-0" />
+							: <ChevronRightIcon className="w-4 h-4 me-2 shrink-0" />}
+						<SlidersHorizontalIcon className="w-4 h-4 me-2 shrink-0" />
+						<span>Opciones avanzadas</span>
 					</button>
 					{advancedOpen && (
 						<div className="px-4 pb-4 pt-1 space-y-4 border-t border-muted-foreground/20">
+							<FormField
+								control={form.control}
+								name="modulusLength"
+								render={({ field }) => (
+									<FormItem>
+										<FormLabel>Tamaño de la llave RSA</FormLabel>
+										<Select onValueChange={field.onChange} value={field.value}>
+											<FormControl>
+												<SelectTrigger>
+													<SelectValue placeholder="Selecciona un tamaño" />
+												</SelectTrigger>
+											</FormControl>
+											<SelectContent>
+												<SelectItem className="text-sm" value="2048">2048 bits (recomendado)</SelectItem>
+												<SelectItem className="text-sm" value="3072">3072 bits</SelectItem>
+											</SelectContent>
+										</Select>
+										<FormMessage />
+									</FormItem>
+								)}
+							/>
+
 							<p className="flex text-xs text-muted-foreground leading-4">
-								<InfoIcon className="w-4 h-4 me-2 flex-shrink-0 mt-px" />
+								<InfoIcon className="w-4 h-4 me-2 shrink-0 mt-px" />
 								La llave privada se genera dentro del token y nunca sale del dispositivo. Solo se podrá descargar el CSR.
 							</p>
 
@@ -670,19 +700,19 @@ export function GenerateCSRForm({
 				<Button
 					type="submit"
 					disabled={isGenerating || (Boolean(privateKeyWithCSR) && !canGenerateNewCSR)}
-					className="flex px-6 dark:text-gray-100 hover:dark:text-gray-50 select-none w-full"
+					className="flex px-6 dark:text-gray-100 dark:hover:text-gray-50 select-none w-full"
 				>
 					{
 						isGenerating
-							? <LoaderIcon className="w-5 h-5 me-2 flex-shrink-0 animate-spin" />
-							: <ZapIcon className="w-5 h-5 me-2 flex-shrink-0" />
+							? <LoaderIcon className="w-5 h-5 me-2 shrink-0 animate-spin" />
+							: <ZapIcon className="w-5 h-5 me-2 shrink-0" />
 					}
 					<span className="block text-lg leading-6">
 						{pkcs11Enabled ? "Generar CSR con PKCS#11" : "Generar CSR"}
 					</span>
 				</Button>
 				<span className="flex text-sm text-muted leading-4 text-pretty">
-					<InfoIcon className="inline w-4 h-4 flex-shrink-0 me-2" />
+					<InfoIcon className="inline w-4 h-4 shrink-0 me-2" />
 					Al generar el CSR das fe de que los datos ingresados son correctos y que tienes autorización para solicitar un certificado de FirmEasy.
 				</span>
 			</form>

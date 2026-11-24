@@ -1,6 +1,6 @@
 use bit_vec::BitVec;
 use cryptoki::{
-    context::{CInitializeArgs, Pkcs11},
+    context::{CInitializeArgs, CInitializeFlags, Pkcs11},
     mechanism::Mechanism,
     object::{Attribute, AttributeType, ObjectHandle},
     session::UserType,
@@ -75,7 +75,7 @@ fn init_pkcs11(driver_path: &str) -> Result<Pkcs11, GenerationError> {
         GenerationError::field(Field::DriverPath, format!("No se pudo cargar el driver PKCS#11: {}", e))
     })?;
     pkcs11
-        .initialize(CInitializeArgs::OsThreads)
+        .initialize(CInitializeArgs::new(CInitializeFlags::OS_LOCKING_OK))
         .map_err(|e| {
             GenerationError::field(Field::DriverPath, format!("No se pudo inicializar PKCS#11: {}", e))
         })?;
@@ -128,7 +128,7 @@ pub fn generate_csr_pkcs11(
         .map_err(|e| GenerationError::general(format!("No se pudo abrir sesión en el token: {}", e)))?;
 
     session
-        .login(UserType::User, Some(&AuthPin::new(data.pin.clone())))
+        .login(UserType::User, Some(&AuthPin::new(data.pin.clone().into())))
         .map_err(|e| GenerationError::field(Field::Pin, format!("PIN incorrecto o login fallido: {}", e)))?;
 
     let modulus_bits = data.modulus_length.unwrap_or(2048);
