@@ -49,6 +49,15 @@ $priXml.Save($priConfig)
 & $makepri new /pr $layout /cf $priConfig /of (Join-Path $layout "resources.pri") /o | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "makepri new falló ($LASTEXITCODE)" }
 
+# Notas de la versión para "Novedades" de la Store, tomadas de la sección ## [X.Y.Z] del CHANGELOG.
+$changelog = Get-Content (Join-Path (Split-Path $tauriDir -Parent) "CHANGELOG.md") -Raw
+$section = [regex]::Match($changelog, "(?ms)^## \[$([regex]::Escape($appVersion))\][^\r\n]*\r?\n(.*?)(?=^## \[|\z)")
+if (-not $section.Success) { throw "CHANGELOG.md no tiene sección para la versión $appVersion." }
+$releaseNotes = $section.Groups[1].Value.Trim()
+if ($releaseNotes.Length -eq 0) { throw "La sección $appVersion de CHANGELOG.md está vacía." }
+if ($releaseNotes.Length -gt 1500) { throw "Las notas de $appVersion tienen $($releaseNotes.Length) caracteres; la Store acepta 1500." }
+[IO.File]::WriteAllText((Join-Path $OutDir "release-notes.txt"), $releaseNotes, [Text.UTF8Encoding]::new($false))
+
 $package = Join-Path $OutDir "GirasolCSRGenerator_${appVersion}_x64.msix"
 & $makeappx pack /d $layout /p $package /o
 if ($LASTEXITCODE -ne 0) { throw "makeappx pack falló ($LASTEXITCODE)" }

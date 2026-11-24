@@ -58,7 +58,9 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: msix
-          path: out/msix/*.msix
+          path: |
+            out/msix/*.msix
+            out/msix/release-notes.txt
           if-no-files-found: error
           retention-days: 30
 
@@ -85,11 +87,50 @@ jobs:
           CLIENT_ID: ${{ secrets.PARTNER_CENTER_CLIENT_ID }}
           CLIENT_SECRET: ${{ secrets.PARTNER_CENTER_CLIENT_SECRET }}
           PRODUCT_ID: ${{ secrets.MSSTORE_PRODUCT_ID }}
+          # Variable del repo (no secret): 'true' envía a certificación; si no, queda en borrador.
+          AUTO_SUBMIT: ${{ vars.MSSTORE_AUTO_SUBMIT }}
         run: |
           msstore reconfigure --tenantId $env:TENANT_ID --sellerId $env:SELLER_ID --clientId $env:CLIENT_ID --clientSecret $env:CLIENT_SECRET
           if ($LASTEXITCODE -ne 0) { throw "msstore reconfigure falló ($LASTEXITCODE)" }
+
           $msix = Get-ChildItem msix -Filter *.msix | Select-Object -First 1
-          # --noCommit deja el envío en borrador: se revisa y se envía desde Partner Center.
-          # Quitarlo cuando el primer envío por CI haya pasado certificación.
           msstore publish $msix.FullName --appId $env:PRODUCT_ID --noCommit
           if ($LASTEXITCODE -ne 0) { throw "msstore publish falló ($LASTEXITCODE)" }
+
+          # `submission update` reemplaza el envío completo: se trae el borrador entero y solo se
+          # cambian las notas de versión de cada idioma. Node (preinstalado) y no ConvertFrom-Json,
+          # que convierte las fechas y alteraría campos que no tocamos.
+          $current = Join-Path $env:RUNNER_TEMP "submission.json"
+          $updated = Join-Path $env:RUNNER_TEMP "submission-updated.json"
+          msstore submission get $env:PRODUCT_ID > $current
+          if ($LASTEXITCODE -ne 0) { throw "msstore submission get falló ($LASTEXITCODE)" }
+
+          $script = Join-Path $env:RUNNER_TEMP "set-release-notes.cjs"
+          Set-Content -Path $script -Encoding utf8NoBOM -Value @'
+          const fs = require("fs");
+          const [currentPath, notesPath, outPath] = process.argv.slice(2);
+          const submission = JSON.parse(fs.readFileSync(currentPath, "utf8").replace(/^\uFEFF/, ""));
+          const notes = fs.readFileSync(notesPath, "utf8");
+          const keyOf = (obj, name) => Object.keys(obj).find((k) => k.toLowerCase() === name.toLowerCase());
+          const listingsKey = keyOf(submission, "listings");
+          if (!listingsKey || Object.keys(submission[listingsKey]).length === 0) throw new Error("El envío no tiene listings.");
+          for (const listing of Object.values(submission[listingsKey])) {
+            const baseKey = keyOf(listing, "baseListing");
+            if (!baseKey) throw new Error("Un listing no tiene baseListing.");
+            listing[baseKey][keyOf(listing[baseKey], "releaseNotes") ?? "releaseNotes"] = notes;
+          }
+          fs.writeFileSync(outPath, JSON.stringify(submission));
+          console.log(`Notas de versión aplicadas a: ${Object.keys(submission[listingsKey]).join(", ")}`);
+          '@
+          node $script $current msix/release-notes.txt $updated
+          if ($LASTEXITCODE -ne 0) { throw "No se pudieron aplicar las notas de versión" }
+
+          msstore submission update $env:PRODUCT_ID $updated
+          if ($LASTEXITCODE -ne 0) { throw "msstore submission update falló ($LASTEXITCODE)" }
+
+          if ($env:AUTO_SUBMIT -eq "true") {
+            msstore submission publish $env:PRODUCT_ID
+            if ($LASTEXITCODE -ne 0) { throw "msstore submission publish falló ($LASTEXITCODE)" }
+          } else {
+            Write-Output "Envío en borrador: revísalo y envíalo desde Partner Center (MSSTORE_AUTO_SUBMIT no es 'true')."
+          }
