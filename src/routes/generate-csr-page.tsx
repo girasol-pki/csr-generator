@@ -32,10 +32,12 @@ export function GenerateCSRPage() {
 	}
 
 	useEffect(() => {
-		if (downloadedStatus.privateKey && downloadedStatus.csr) {
+		if (!privateKeyWithCSR) return;
+		const needsPrivate = privateKeyWithCSR.privateKeyPem !== null;
+		if (downloadedStatus.csr && (!needsPrivate || downloadedStatus.privateKey)) {
 			setPrivateKeyWithCSR(null)
 		}
-	}, [downloadedStatus])
+	}, [downloadedStatus, privateKeyWithCSR])
 
 	return (
 		<Layout>

@@ -25,8 +25,10 @@ export function CSRGenerationResult({
 		[privateKeyWithCSR]
 	);
 
+	const hasPrivateKey = Boolean(privateKeyWithCSR?.privateKeyPem);
+
 	function downloadPrivateKey() {
-		if (!privateKeyWithCSR) return;
+		if (!privateKeyWithCSR?.privateKeyPem) return;
 		const privateKeyBlob = new Blob([privateKeyWithCSR.privateKeyPem.trim() ?? ""], { type: "application/x-pem-file" });
 		const privateKeyUrl = URL.createObjectURL(privateKeyBlob);
 		const privateKeyAnchor = document.createElement("a");
@@ -54,12 +56,14 @@ export function CSRGenerationResult({
 			<div className="space-y-3">
 				<p className="flex text-sm text-amber-600 dark:text-amber-400 font-semibold w-full justify-center leading-4 flex-grow">
 					<InfoIcon className="w-4 h-4 flex-shrink-0 me-2" />
-					La Private Key firma el CSR y no la debes compartir con nadie
+					{hasPrivateKey
+						? "La Private Key firma el CSR y no la debes compartir con nadie"
+						: "La llave privada permanece en el token PKCS#11"}
 				</p>
 				<div className="flex justify-evenly">
 					<Button
 						className="bg-[hsl(247,94%,19%)] hover:bg-[hsl(247,94%,19%)]/90 dark:bg-[hsl(247,94%,30%)] hover:dark:dark:bg-[hsl(247,94%,25%)] flex px-6 dark:text-gray-100 hover:dark:text-gray-50 select-none w-56"
-						disabled={!privateKeyWithCSR}
+						disabled={!privateKeyWithCSR || !hasPrivateKey}
 						onClick={() => {
 							downloadPrivateKey()
 							setPrivateKeyIsDownloaded()
@@ -70,7 +74,9 @@ export function CSRGenerationResult({
 						}}
 					>
 						<KeyIcon className="w-5 h-5 me-2 flex-shrink-0" />
-						<span className="block text-base leading-6">Descargar Private Key</span>
+						<span className="block text-base leading-6">
+							{hasPrivateKey ? "Descargar Private Key" : "Llave en token"}
+						</span>
 					</Button>
 					<Button
 						className="bg-primary hover:bg-primary/90 flex px-6 dark:text-gray-100 hover:dark:text-gray-50 select-none w-56"

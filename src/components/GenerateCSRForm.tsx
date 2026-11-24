@@ -1,12 +1,13 @@
 import { Dispatch, SetStateAction, useMemo, useState } from "react";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "./ui/form";
-import { InfoIcon, LoaderIcon, ZapIcon } from "lucide-react";
+import { ChevronDownIcon, ChevronRightIcon, FolderOpenIcon, InfoIcon, LoaderIcon, RefreshCwIcon, ShieldIcon, ZapIcon } from "lucide-react";
 
 import { Button } from "./ui/button"
 import { Input } from "./ui/input";
-import { PrivateKeyWithCSR } from "@/models";
+import { PKCS11Slot, PrivateKeyWithCSR } from "@/models";
 import { cn } from "@/lib/utils";
 import { invoke } from "@tauri-apps/api/core";
+import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { toast } from "sonner";
 import { useForm } from "react-hook-form"
 import { z } from "zod"
@@ -30,7 +31,14 @@ type CSRGenerationParams = {
 	modulusLength: number,
 }
 
-const formSchema = z.object({
+type PKCS11CSRGenerationParams = CSRGenerationParams & {
+	driverPath: string,
+	slotId: number,
+	pin: string,
+	keyLabel: string,
+}
+
+const baseSchema = {
 	country: z.string().length(2),
 	region: z.string().min(1, "Este campo es requerido"),
 	province: z.string().min(1, "Este campo es requerido"),
@@ -43,11 +51,40 @@ const formSchema = z.object({
 	modulusLength: z.string().refine((value) => ["2048", "3072"].includes(value), {
 		message: "El tamaño de clave debe ser 2048 o 3072",
 	}),
-})
+}
+
+const formSchema = z
+	.object({
+		...baseSchema,
+		pkcs11Enabled: z.boolean(),
+		driverPath: z.string(),
+		slotId: z.string(),
+		pin: z.string(),
+		keyLabel: z.string(),
+	})
+	.superRefine((values, ctx) => {
+		if (!values.pkcs11Enabled) return;
+		if (!values.driverPath) {
+			ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["driverPath"], message: "Selecciona un driver PKCS#11" })
+		}
+		if (!values.slotId) {
+			ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["slotId"], message: "Selecciona un slot" })
+		}
+		if (!values.pin) {
+			ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["pin"], message: "Ingresa el PIN del token" })
+		}
+		if (!values.keyLabel || values.keyLabel.trim().length === 0) {
+			ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["keyLabel"], message: "Ingresa una etiqueta para la llave" })
+		}
+	})
 
 
 type GeneratedPrivateKeyWithCSR = {
 	base64_private_key_pem: string,
+	base64_csr_pem: string,
+}
+
+type GeneratedCSROnly = {
 	base64_csr_pem: string,
 }
 
@@ -70,14 +107,18 @@ export function GenerateCSRForm({
 	downloadedStatus,
 	resetDownloadedStatus,
 }: Props) {
-	const canGenerateNewCSR = useMemo(
-		() => downloadedStatus.privateKey && downloadedStatus.csr,
-		[downloadedStatus]
-	)
+	const canGenerateNewCSR = useMemo(() => {
+		if (!privateKeyWithCSR) return true;
+		const needsPrivate = privateKeyWithCSR.privateKeyPem !== null;
+		return downloadedStatus.csr && (!needsPrivate || downloadedStatus.privateKey);
+	}, [downloadedStatus, privateKeyWithCSR])
 
 	//! useTransition doesn't work with Tauri yet
 	// const [isGenerating, startGeneration] = useTransition();
 	const [isGenerating, setIsGenerating] = useState(false);
+	const [advancedOpen, setAdvancedOpen] = useState(false);
+	const [slots, setSlots] = useState<PKCS11Slot[]>([]);
+	const [isListingSlots, setIsListingSlots] = useState(false);
 
 	const form = useForm<z.infer<typeof formSchema>>({
 		resolver: zodResolver(formSchema),
@@ -92,8 +133,52 @@ export function GenerateCSRForm({
 			email: "",
 			commonName: "",
 			modulusLength: "2048",
+			pkcs11Enabled: false,
+			driverPath: "",
+			slotId: "",
+			pin: "",
+			keyLabel: "firmeasy-key",
 		},
 	})
+
+	const pkcs11Enabled = form.watch("pkcs11Enabled");
+	const driverPath = form.watch("driverPath");
+
+	async function pickDriver() {
+		const selected = await openFileDialog({
+			multiple: false,
+			directory: false,
+			filters: [
+				{ name: "Drivers PKCS#11", extensions: ["dll", "so", "dylib"] },
+				{ name: "Todos", extensions: ["*"] },
+			],
+		});
+		if (typeof selected !== "string") return;
+		form.setValue("driverPath", selected, { shouldValidate: true });
+		form.setValue("slotId", "");
+		setSlots([]);
+	}
+
+	async function listSlots() {
+		const path = form.getValues("driverPath");
+		if (!path) return;
+		setIsListingSlots(true);
+		try {
+			const result = await invoke<PKCS11Slot[]>("list_pkcs11_slots", {
+				params: { driverPath: path },
+			});
+			setSlots(result);
+			if (result.length === 0) {
+				toast.warning("No se encontraron slots con token en este driver", { closeButton: true });
+			}
+		} catch (error) {
+			const err = error as GenerationError;
+			toast.error("No se pudieron listar los slots", { description: err.message, closeButton: true });
+			setSlots([]);
+		} finally {
+			setIsListingSlots(false);
+		}
+	}
 
 	async function generateCSR(data: CSRGenerationParams) {
 		setIsGenerating(true);
@@ -128,6 +213,37 @@ export function GenerateCSRForm({
 		setIsGenerating(false);
 	}
 
+	async function generateCSRPkcs11(data: PKCS11CSRGenerationParams) {
+		setIsGenerating(true);
+		await new Promise(resolve => setTimeout(resolve, 150));
+
+		const response = await invoke<GeneratedCSROnly>("generate_csr_pkcs11", {
+			data,
+		}).catch((error: GenerationError) => {
+			toast.error("Ocurrió un error al generar el CSR con PKCS#11", {
+				description: error.message,
+				closeButton: true,
+			});
+			setIsGenerating(false);
+		});
+
+		if (!response) return;
+
+		const csrPem = globalThis.atob(response.base64_csr_pem);
+
+		setPrivateKeyWithCSR({
+			privateKeyPem: null,
+			csrPem,
+		});
+
+		toast.success("CSR generado en el token correctamente", {
+			description: "La llave privada permanece en el token. Descarga el CSR para continuar.",
+			closeButton: true,
+		});
+
+		setIsGenerating(false);
+	}
+
 	async function onSubmit(values: z.infer<typeof formSchema>) {
 		const csrData: CSRGenerationParams = {
 			country: values.country,
@@ -140,7 +256,18 @@ export function GenerateCSRForm({
 			commonName: values.commonName,
 			modulusLength: Number(values.modulusLength),
 		}
-		await generateCSR(csrData);
+
+		if (values.pkcs11Enabled) {
+			await generateCSRPkcs11({
+				...csrData,
+				driverPath: values.driverPath,
+				slotId: Number(values.slotId),
+				pin: values.pin,
+				keyLabel: values.keyLabel.trim(),
+			});
+		} else {
+			await generateCSR(csrData);
+		}
 		resetDownloadedStatus();
 	}
 
@@ -292,6 +419,157 @@ export function GenerateCSRForm({
 						</FormItem>
 					)}
 				/>
+
+				<div className="border border-dashed border-muted-foreground/30 rounded-md">
+					<button
+						type="button"
+						className="flex items-center w-full px-4 py-2 text-sm text-muted-foreground hover:text-foreground select-none"
+						onClick={() => setAdvancedOpen((v) => !v)}
+					>
+						{advancedOpen
+							? <ChevronDownIcon className="w-4 h-4 me-2 flex-shrink-0" />
+							: <ChevronRightIcon className="w-4 h-4 me-2 flex-shrink-0" />}
+						<ShieldIcon className="w-4 h-4 me-2 flex-shrink-0" />
+						<span>Modo avanzado: generar llave en token PKCS#11</span>
+					</button>
+					{advancedOpen && (
+						<div className="px-4 pb-4 pt-1 space-y-4 border-t border-muted-foreground/20">
+							<p className="flex text-xs text-muted-foreground leading-4">
+								<InfoIcon className="w-4 h-4 me-2 flex-shrink-0 mt-px" />
+								La llave privada se genera dentro del token y nunca sale del dispositivo. Solo se podrá descargar el CSR.
+							</p>
+
+							<FormField
+								control={form.control}
+								name="pkcs11Enabled"
+								render={({ field }) => (
+									<FormItem>
+										<label className="flex items-center gap-2 cursor-pointer text-sm">
+											<input
+												type="checkbox"
+												checked={field.value}
+												onChange={(e) => field.onChange(e.target.checked)}
+												className="h-4 w-4"
+											/>
+											<span>Usar PKCS#11 para esta generación</span>
+										</label>
+										<FormMessage />
+									</FormItem>
+								)}
+							/>
+
+							{pkcs11Enabled && (
+								<>
+									<FormField
+										control={form.control}
+										name="driverPath"
+										render={({ field }) => (
+											<FormItem>
+												<FormLabel>Driver PKCS#11</FormLabel>
+												<div className="flex gap-2">
+													<FormControl>
+														<Input
+															{...field}
+															readOnly
+															placeholder="Selecciona un .dll / .so / .dylib"
+														/>
+													</FormControl>
+													<Button type="button" variant="outline" onClick={pickDriver}>
+														<FolderOpenIcon className="w-4 h-4 me-2" />
+														<span>Seleccionar</span>
+													</Button>
+												</div>
+												<FormMessage />
+											</FormItem>
+										)}
+									/>
+
+									<FormField
+										control={form.control}
+										name="slotId"
+										render={({ field }) => (
+											<FormItem>
+												<FormLabel>Slot / token</FormLabel>
+												<div className="flex gap-2">
+													<Select
+														onValueChange={field.onChange}
+														value={field.value}
+														disabled={slots.length === 0}
+													>
+														<FormControl>
+															<SelectTrigger>
+																<SelectValue
+																	placeholder={slots.length === 0 ? "Lista los slots primero" : "Selecciona un slot"}
+																/>
+															</SelectTrigger>
+														</FormControl>
+														<SelectContent>
+															{slots.map((slot) => (
+																<SelectItem
+																	key={slot.id}
+																	value={String(slot.id)}
+																	className="text-sm"
+																>
+																	[{slot.id}] {slot.label || slot.model || "Token"} — {slot.manufacturer}
+																</SelectItem>
+															))}
+														</SelectContent>
+													</Select>
+													<Button
+														type="button"
+														variant="outline"
+														disabled={!driverPath || isListingSlots}
+														onClick={listSlots}
+													>
+														{isListingSlots
+															? <LoaderIcon className="w-4 h-4 me-2 animate-spin" />
+															: <RefreshCwIcon className="w-4 h-4 me-2" />}
+														<span>Listar</span>
+													</Button>
+												</div>
+												<FormMessage />
+											</FormItem>
+										)}
+									/>
+
+									<FormField
+										control={form.control}
+										name="pin"
+										render={({ field }) => (
+											<FormItem>
+												<FormLabel>PIN del token</FormLabel>
+												<FormControl>
+													<Input
+														{...field}
+														type="password"
+														autoComplete="off"
+														placeholder="••••••"
+													/>
+												</FormControl>
+												<FormMessage />
+											</FormItem>
+										)}
+									/>
+
+									<FormField
+										control={form.control}
+										name="keyLabel"
+										render={({ field }) => (
+											<FormItem>
+												<FormLabel>Etiqueta de la llave</FormLabel>
+												<FormControl>
+													<Input {...field} placeholder="firmeasy-key" />
+												</FormControl>
+												<FormMessage />
+											</FormItem>
+										)}
+									/>
+								</>
+							)}
+						</div>
+					)}
+				</div>
+
 				<Button
 					type="submit"
 					disabled={isGenerating || (Boolean(privateKeyWithCSR) && !canGenerateNewCSR)}
@@ -302,7 +580,9 @@ export function GenerateCSRForm({
 							? <LoaderIcon className="w-5 h-5 me-2 flex-shrink-0 animate-spin" />
 							: <ZapIcon className="w-5 h-5 me-2 flex-shrink-0" />
 					}
-					<span className="block text-lg leading-6">Generar CSR</span>
+					<span className="block text-lg leading-6">
+						{pkcs11Enabled ? "Generar CSR con PKCS#11" : "Generar CSR"}
+					</span>
 				</Button>
 				<span className="flex text-sm text-muted leading-4 text-pretty">
 					<InfoIcon className="inline w-4 h-4 flex-shrink-0 me-2" />
