@@ -1,5 +1,7 @@
 mod commands;
+mod generation_error;
 mod pkcs11;
+mod subject;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

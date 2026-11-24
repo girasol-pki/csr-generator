@@ -12,18 +12,8 @@ use openssl::base64;
 use serde::{Deserialize, Serialize};
 use yasna::models::ObjectIdentifier;
 
-#[derive(Serialize)]
-pub struct GenerationError {
-    pub message: String,
-}
-
-impl GenerationError {
-    fn new(msg: impl Into<String>) -> Self {
-        Self {
-            message: msg.into(),
-        }
-    }
-}
+use crate::generation_error::{Field, GenerationError};
+use crate::subject::Subject;
 
 #[derive(Serialize)]
 pub struct SlotEntry {
@@ -60,6 +50,21 @@ pub struct PKCS11CSRGenerationParams {
     pub modulus_length: Option<u32>,
 }
 
+impl PKCS11CSRGenerationParams {
+    fn subject(&self) -> Subject<'_> {
+        Subject {
+            country: &self.country,
+            state: &self.state,
+            locality: &self.locality,
+            organization: &self.organization,
+            organization_unit: &self.organization_unit,
+            street: &self.street,
+            email: &self.email,
+            common_name: &self.common_name,
+        }
+    }
+}
+
 #[derive(Serialize)]
 pub struct PKCS11CSRResult {
     pub base64_csr_pem: String,
@@ -67,11 +72,13 @@ pub struct PKCS11CSRResult {
 
 fn init_pkcs11(driver_path: &str) -> Result<Pkcs11, GenerationError> {
     let pkcs11 = Pkcs11::new(driver_path).map_err(|e| {
-        GenerationError::new(format!("No se pudo cargar el driver PKCS#11: {}", e))
+        GenerationError::field(Field::DriverPath, format!("No se pudo cargar el driver PKCS#11: {}", e))
     })?;
     pkcs11
         .initialize(CInitializeArgs::OsThreads)
-        .map_err(|e| GenerationError::new(format!("No se pudo inicializar PKCS#11: {}", e)))?;
+        .map_err(|e| {
+            GenerationError::field(Field::DriverPath, format!("No se pudo inicializar PKCS#11: {}", e))
+        })?;
     Ok(pkcs11)
 }
 
@@ -83,12 +90,12 @@ pub fn list_pkcs11_slots(
 
     let slots = pkcs11
         .get_slots_with_token()
-        .map_err(|e| GenerationError::new(format!("No se pudieron listar los slots: {}", e)))?;
+        .map_err(|e| GenerationError::general(format!("No se pudieron listar los slots: {}", e)))?;
 
     let mut entries = Vec::with_capacity(slots.len());
     for slot in slots {
         let token_info = pkcs11.get_token_info(slot).map_err(|e| {
-            GenerationError::new(format!("No se pudo obtener información del token: {}", e))
+            GenerationError::general(format!("No se pudo obtener información del token: {}", e))
         })?;
 
         entries.push(SlotEntry {
@@ -109,18 +116,20 @@ pub fn list_pkcs11_slots(
 pub fn generate_csr_pkcs11(
     data: PKCS11CSRGenerationParams,
 ) -> Result<PKCS11CSRResult, GenerationError> {
+    data.subject().validate()?;
+
     let pkcs11 = init_pkcs11(&data.driver_path)?;
 
     let slot = Slot::try_from(data.slot_id)
-        .map_err(|e| GenerationError::new(format!("Slot inválido: {}", e)))?;
+        .map_err(|e| GenerationError::field(Field::SlotId, format!("Slot inválido: {}", e)))?;
 
     let session = pkcs11
         .open_rw_session(slot)
-        .map_err(|e| GenerationError::new(format!("No se pudo abrir sesión en el token: {}", e)))?;
+        .map_err(|e| GenerationError::general(format!("No se pudo abrir sesión en el token: {}", e)))?;
 
     session
         .login(UserType::User, Some(&AuthPin::new(data.pin.clone())))
-        .map_err(|e| GenerationError::new(format!("PIN incorrecto o login fallido: {}", e)))?;
+        .map_err(|e| GenerationError::field(Field::Pin, format!("PIN incorrecto o login fallido: {}", e)))?;
 
     let modulus_bits = data.modulus_length.unwrap_or(2048);
     let label_bytes = data.key_label.clone().into_bytes();
@@ -153,7 +162,7 @@ pub fn generate_csr_pkcs11(
             &private_template,
         )
         .map_err(|e| {
-            GenerationError::new(format!("No se pudo generar el par de claves en el token: {}", e))
+            GenerationError::general(format!("No se pudo generar el par de claves en el token: {}", e))
         })?;
 
     let (modulus, public_exponent) = read_rsa_public_components(&session, pub_handle)?;
@@ -163,7 +172,7 @@ pub fn generate_csr_pkcs11(
     let signature = session
         .sign(&Mechanism::Sha256RsaPkcs, priv_handle, &cert_request_info)
         .map_err(|e| {
-            GenerationError::new(format!("No se pudo firmar el CSR con el token: {}", e))
+            GenerationError::general(format!("No se pudo firmar el CSR con el token: {}", e))
         })?;
 
     let csr_der = build_certification_request(&cert_request_info, &signature);
@@ -184,7 +193,7 @@ fn read_rsa_public_components(
             &[AttributeType::Modulus, AttributeType::PublicExponent],
         )
         .map_err(|e| {
-            GenerationError::new(format!(
+            GenerationError::general(format!(
                 "No se pudieron leer los componentes públicos: {}",
                 e
             ))
@@ -201,9 +210,9 @@ fn read_rsa_public_components(
     }
 
     let modulus = modulus
-        .ok_or_else(|| GenerationError::new("El token no devolvió el módulo".to_string()))?;
+        .ok_or_else(|| GenerationError::general("El token no devolvió el módulo".to_string()))?;
     let exponent = exponent
-        .ok_or_else(|| GenerationError::new("El token no devolvió el exponente público".to_string()))?;
+        .ok_or_else(|| GenerationError::general("El token no devolvió el exponente público".to_string()))?;
 
     Ok((modulus, exponent))
 }

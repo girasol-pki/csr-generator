@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { toast } from "sonner";
-import { useForm } from "react-hook-form"
+import { FieldErrors, useForm } from "react-hook-form"
 import { z } from "zod"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
@@ -38,16 +38,42 @@ type PKCS11CSRGenerationParams = CSRGenerationParams & {
 	keyLabel: string,
 }
 
+// Límites y normalización acordados con girasol-ec: se cuentan puntos de código tras NFC
+// (no unidades UTF-16 ni bytes) sobre el valor final de cada atributo del subject.
+const characterCount = (value: string) => [...value].length;
+
+const normalizeSubjectText = (value: string) => value.normalize("NFC").replace(/\s+/g, " ").trim();
+
+const MAX_STATE_LENGTH = 128;
+
+const tooLong = (max: number) => (value: string) => ({
+	message: `Máximo ${max} caracteres (tienes ${characterCount(value)})`,
+});
+
+const subjectText = (max: number) =>
+	z.string()
+		.transform(normalizeSubjectText)
+		.pipe(
+			z.string()
+				.min(1, "Este campo es requerido")
+				.refine((value) => characterCount(value) <= max, tooLong(max)),
+		);
+
+const stateOf = (region: string, province: string) => `${region}-${province}`;
+
 const baseSchema = {
 	country: z.string().length(2),
-	region: z.string().min(1, "Este campo es requerido"),
-	province: z.string().min(1, "Este campo es requerido"),
-	district: z.string().min(1, "Este campo es requerido"),
-	organization: z.string().min(1, "Este campo es requerido"),
-	organizationUnit: z.string().min(1, "Este campo es requerido"),
-	street: z.string().min(1, "Este campo es requerido"),
-	email: z.string().email("El email ingresado no es válido"),
-	commonName: z.string().min(1, "Este campo es requerido"),
+	region: subjectText(MAX_STATE_LENGTH),
+	province: subjectText(MAX_STATE_LENGTH),
+	district: subjectText(128),
+	organization: subjectText(128),
+	organizationUnit: subjectText(128),
+	street: subjectText(256),
+	email: z.string()
+		.trim()
+		.email("El email ingresado no es válido")
+		.refine((value) => characterCount(value) <= 255, tooLong(255)),
+	commonName: subjectText(128),
 	modulusLength: z.string().refine((value) => ["2048", "3072"].includes(value), {
 		message: "El tamaño de clave debe ser 2048 o 3072",
 	}),
@@ -63,6 +89,15 @@ const formSchema = z
 		keyLabel: z.string(),
 	})
 	.superRefine((values, ctx) => {
+		const state = stateOf(values.region, values.province);
+		if (characterCount(state) > MAX_STATE_LENGTH) {
+			ctx.addIssue({
+				code: z.ZodIssueCode.custom,
+				path: ["province"],
+				message: `Región y provincia juntas: máximo ${MAX_STATE_LENGTH} caracteres (tienen ${characterCount(state)})`,
+			})
+		}
+
 		if (!values.pkcs11Enabled) return;
 		if (!values.driverPath) {
 			ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["driverPath"], message: "Selecciona un driver PKCS#11" })
@@ -79,17 +114,79 @@ const formSchema = z
 	})
 
 
-type GeneratedPrivateKeyWithCSR = {
-	base64_private_key_pem: string,
-	base64_csr_pem: string,
+const generatedPrivateKeyWithCSRSchema = z.object({
+	base64_private_key_pem: z.string(),
+	base64_csr_pem: z.string(),
+})
+
+const generatedCSROnlySchema = z.object({
+	base64_csr_pem: z.string(),
+})
+
+const slotsSchema = z.array(z.object({
+	id: z.number(),
+	label: z.string(),
+	manufacturer: z.string(),
+	model: z.string(),
+	serial_number: z.string(),
+	initialized: z.boolean(),
+	login_required: z.boolean(),
+}))
+
+type FormValues = z.infer<typeof formSchema>
+
+const backendFieldSchema = z.enum([
+	"country",
+	"state",
+	"locality",
+	"organization",
+	"organizationUnit",
+	"street",
+	"email",
+	"commonName",
+	"driverPath",
+	"slotId",
+	"pin",
+])
+
+// "state" es región y provincia concatenadas; el error se muestra en provincia.
+const formFieldByBackendField: Record<z.infer<typeof backendFieldSchema>, keyof FormValues> = {
+	country: "country",
+	state: "province",
+	locality: "district",
+	organization: "organization",
+	organizationUnit: "organizationUnit",
+	street: "street",
+	email: "email",
+	commonName: "commonName",
+	driverPath: "driverPath",
+	slotId: "slotId",
+	pin: "pin",
 }
 
-type GeneratedCSROnly = {
-	base64_csr_pem: string,
-}
+const pkcs11Fields: ReadonlyArray<keyof FormValues> = ["driverPath", "slotId", "pin", "keyLabel"]
 
-type GenerationError = {
-	message: string,
+const generationErrorSchema = z.discriminatedUnion("kind", [
+	z.object({ kind: z.literal("field"), field: backendFieldSchema, message: z.string() }),
+	z.object({ kind: z.literal("general"), message: z.string() }),
+])
+
+type InvokeFailure =
+	| { kind: "field", field: keyof FormValues, message: string }
+	| { kind: "general", message: string }
+
+// Los comandos rechazan con GenerationError; Tauri rechaza con un string si falla antes (p. ej. al deserializar).
+function parseInvokeError(error: unknown): InvokeFailure {
+	const parsed = generationErrorSchema.safeParse(error);
+	if (parsed.success) {
+		const failure = parsed.data;
+		return failure.kind === "field"
+			? { kind: "field", field: formFieldByBackendField[failure.field], message: failure.message }
+			: failure;
+	}
+	if (typeof error === "string") return { kind: "general", message: error };
+	if (error instanceof Error) return { kind: "general", message: error.message };
+	return { kind: "general", message: "Error desconocido" };
 }
 
 type Props = {
@@ -120,8 +217,9 @@ export function GenerateCSRForm({
 	const [slots, setSlots] = useState<PKCS11Slot[]>([]);
 	const [isListingSlots, setIsListingSlots] = useState(false);
 
-	const form = useForm<z.infer<typeof formSchema>>({
+	const form = useForm<FormValues>({
 		resolver: zodResolver(formSchema),
+		mode: "onTouched",
 		defaultValues: {
 			country: "PE",
 			region: "",
@@ -159,21 +257,38 @@ export function GenerateCSRForm({
 		setSlots([]);
 	}
 
+	// Los campos PKCS#11 viven en un panel colapsable: si el error es de uno de ellos, se abre para que se vea.
+	function revealFieldsWithErrors(fields: ReadonlyArray<keyof FormValues>) {
+		if (fields.some((field) => pkcs11Fields.includes(field))) setAdvancedOpen(true);
+	}
+
+	function reportFailure(title: string, error: unknown) {
+		const failure = parseInvokeError(error);
+		if (failure.kind === "field") {
+			revealFieldsWithErrors([failure.field]);
+			form.setError(failure.field, { type: "server", message: failure.message }, { shouldFocus: true });
+		}
+		toast.error(title, { description: failure.message, closeButton: true });
+	}
+
+	function onInvalid(errors: FieldErrors<FormValues>) {
+		revealFieldsWithErrors(pkcs11Fields.filter((field) => field in errors));
+	}
+
 	async function listSlots() {
 		const path = form.getValues("driverPath");
 		if (!path) return;
 		setIsListingSlots(true);
 		try {
-			const result = await invoke<PKCS11Slot[]>("list_pkcs11_slots", {
-				params: { driverPath: path },
-			});
+			const result: PKCS11Slot[] = slotsSchema.parse(
+				await invoke("list_pkcs11_slots", { params: { driverPath: path } }),
+			);
 			setSlots(result);
 			if (result.length === 0) {
 				toast.warning("No se encontraron slots con token en este driver", { closeButton: true });
 			}
 		} catch (error) {
-			const err = error as GenerationError;
-			toast.error("No se pudieron listar los slots", { description: err.message, closeButton: true });
+			reportFailure("No se pudieron listar los slots", error);
 			setSlots([]);
 		} finally {
 			setIsListingSlots(false);
@@ -184,70 +299,52 @@ export function GenerateCSRForm({
 		setIsGenerating(true);
 		await new Promise(resolve => setTimeout(resolve, 150));
 
-		const response = await invoke<GeneratedPrivateKeyWithCSR>("generate_csr", {
-			data
-		})
-			.catch((error: GenerationError) => {
-				toast.error("Ocurrió un error al intentar generar el CSR", {
-					description: error.message,
-					closeButton: true,
-				})
-				setIsGenerating(false);
-			})
+		try {
+			const response = generatedPrivateKeyWithCSRSchema.parse(await invoke("generate_csr", { data }));
 
-		if (!response) return;
+			setPrivateKeyWithCSR({
+				privateKeyPem: globalThis.atob(response.base64_private_key_pem),
+				csrPem: globalThis.atob(response.base64_csr_pem),
+			});
 
-		const privateKeyPem = globalThis.atob(response.base64_private_key_pem);
-		const csrPem = globalThis.atob(response.base64_csr_pem);
-
-		setPrivateKeyWithCSR({
-			privateKeyPem,
-			csrPem,
-		});
-
-		toast.success("CSR generado correctamente", {
-			description: "Debes descargar la Private Key y el CSR antes de volver a generar un CSR",
-			closeButton: true,
-		});
-
-		setIsGenerating(false);
+			toast.success("CSR generado correctamente", {
+				description: "Debes descargar la Private Key y el CSR antes de volver a generar un CSR",
+				closeButton: true,
+			});
+		} catch (error) {
+			reportFailure("Ocurrió un error al intentar generar el CSR", error);
+		} finally {
+			setIsGenerating(false);
+		}
 	}
 
 	async function generateCSRPkcs11(data: PKCS11CSRGenerationParams) {
 		setIsGenerating(true);
 		await new Promise(resolve => setTimeout(resolve, 150));
 
-		const response = await invoke<GeneratedCSROnly>("generate_csr_pkcs11", {
-			data,
-		}).catch((error: GenerationError) => {
-			toast.error("Ocurrió un error al generar el CSR con PKCS#11", {
-				description: error.message,
+		try {
+			const response = generatedCSROnlySchema.parse(await invoke("generate_csr_pkcs11", { data }));
+
+			setPrivateKeyWithCSR({
+				privateKeyPem: null,
+				csrPem: globalThis.atob(response.base64_csr_pem),
+			});
+
+			toast.success("CSR generado en el token correctamente", {
+				description: "La llave privada permanece en el token. Descarga el CSR para continuar.",
 				closeButton: true,
 			});
+		} catch (error) {
+			reportFailure("Ocurrió un error al generar el CSR con PKCS#11", error);
+		} finally {
 			setIsGenerating(false);
-		});
-
-		if (!response) return;
-
-		const csrPem = globalThis.atob(response.base64_csr_pem);
-
-		setPrivateKeyWithCSR({
-			privateKeyPem: null,
-			csrPem,
-		});
-
-		toast.success("CSR generado en el token correctamente", {
-			description: "La llave privada permanece en el token. Descarga el CSR para continuar.",
-			closeButton: true,
-		});
-
-		setIsGenerating(false);
+		}
 	}
 
 	async function onSubmit(values: z.infer<typeof formSchema>) {
 		const csrData: CSRGenerationParams = {
 			country: values.country,
-			state: `${values.region}-${values.province}`,
+			state: stateOf(values.region, values.province),
 			locality: values.district,
 			organization: values.organization,
 			organizationUnit: values.organizationUnit,
@@ -273,7 +370,7 @@ export function GenerateCSRForm({
 
 	return (
 		<Form {...form} >
-			<form className={cn(className, "space-y-6")} onSubmit={form.handleSubmit(onSubmit)}>
+			<form className={cn(className, "space-y-6")} onSubmit={form.handleSubmit(onSubmit, onInvalid)}>
 				<div className="grid grid-cols-10 gap-6">
 					<FormField
 						control={form.control}
