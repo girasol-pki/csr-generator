@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Identidad, Id de aplicación, idioma, ruta del ejecutable y accesos directos replican el paquete
+  que ya está en la Store (generado antes con MSIX Packaging Tool) para que la actualización sea
+  transparente. {{VERSION}} lo reemplaza build-msix.ps1.
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:uap10="http://schemas.microsoft.com/appx/manifest/uap/windows10/10"
+  xmlns:desktop7="http://schemas.microsoft.com/appx/manifest/desktop/windows10/7"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  xmlns:mp="http://schemas.microsoft.com/appx/2014/phone/manifest"
+  IgnorableNamespaces="uap uap10 desktop7 rescap mp">
+  <Identity
+    Name="GirasolPESCRL.GirasolCSRGenerator"
+    Publisher="CN=E3E0A73E-2076-467E-97E6-8DA2DA9B0EB7"
+    Version="{{VERSION}}"
+    ProcessorArchitecture="x64" />
+  <mp:PhoneIdentity PhoneProductId="7bed8976-88a2-42b9-8422-a9d86a89ca36" PhonePublisherId="f5227341-4235-45ec-bc11-9e933a9a0fb2" />
+  <Properties>
+    <DisplayName>Girasol CSR Generator</DisplayName>
+    <PublisherDisplayName>Girasol PE SCRL</PublisherDisplayName>
+    <Description>Girasol CSR Generator</Description>
+    <Logo>Assets\StoreLogo.png</Logo>
+    <uap10:PackageIntegrity>
+      <uap10:Content Enforcement="on" />
+    </uap10:PackageIntegrity>
+  </Properties>
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+  <Applications>
+    <Application
+      Id="GIRASOLCSRGENERATOR"
+      Executable="VFS\ProgramFilesX64\Girasol CSR Generator\girasol-csr-generator.exe"
+      EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        BackgroundColor="transparent"
+        DisplayName="Girasol CSR Generator"
+        Description="Girasol CSR Generator"
+        Square150x150Logo="Assets\GIRASOLCSRGENERATOR-Square150x150Logo.png"
+        Square44x44Logo="Assets\GIRASOLCSRGENERATOR-Square44x44Logo.png">
+        <uap:DefaultTile
+          Wide310x150Logo="Assets\GIRASOLCSRGENERATOR-Wide310x150Logo.png"
+          Square310x310Logo="Assets\GIRASOLCSRGENERATOR-Square310x310Logo.png"
+          Square71x71Logo="Assets\GIRASOLCSRGENERATOR-Square71x71Logo.png" />
+      </uap:VisualElements>
+      <Extensions>
+        <desktop7:Extension Category="windows.shortcut">
+          <desktop7:Shortcut
+            File="[{Desktop}]\Girasol CSR Generator.lnk"
+            Icon="[{Package}]\VFS\ProgramFilesX64\Girasol CSR Generator\girasol-csr-generator.exe"
+            Description="Runs Girasol CSR Generator" />
+        </desktop7:Extension>
+        <desktop7:Extension Category="windows.shortcut">
+          <desktop7:Shortcut
+            File="[{Common Programs}]\Girasol CSR Generator\Girasol CSR Generator.lnk"
+            Icon="[{Package}]\VFS\ProgramFilesX64\Girasol CSR Generator\girasol-csr-generator.exe"
+            Description="Runs Girasol CSR Generator" />
+        </desktop7:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+</Package>
