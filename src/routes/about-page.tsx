@@ -9,12 +9,12 @@ export function AboutPage() {
 
 			<p className="">
 				<span className="font-semibold">Versión: </span>
-				<span>1.1.0</span>
+				<span>{__APP_VERSION__}</span>
 			</p>
 
 			<p className="">
 				<span className="font-semibold">Fecha de Lanzamiento: </span>
-				<span>2024-11-01</span>
+				<span>{__APP_RELEASE_DATE__}</span>
 			</p>
 
 			<p className="mb-4">
