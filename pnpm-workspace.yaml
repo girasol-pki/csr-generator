@@ -5,3 +5,5 @@ onlyBuiltDependencies:
 overrides:
   # Peer opcional de Vite; 2.6.0 tiene GHSA con parche en 2.8.3.
   yaml: 2.9.1
+# No resuelve versiones publicadas hace menos de 3 días (en minutos).
+minimumReleaseAge: 4320

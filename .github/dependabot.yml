@@ -1,10 +1,14 @@
 version: 2
+# cooldown: no propone versiones con menos de 3 días publicadas, para dar tiempo a que se
+# detecte y retire un paquete comprometido antes de que llegue aquí.
 updates:
   # Mantiene al día los SHAs fijados de las actions (actualiza también el comentario de versión).
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 3
     groups:
       actions:
         patterns: ["*"]
@@ -13,15 +17,30 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 3
     versioning-strategy: increase
     groups:
       minor-and-patch:
         update-types: [minor, patch]
+    ignore:
+      # Los tipos siguen la versión mayor de Node con la que se construye (24).
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: cargo
     directory: /src-tauri
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 3
     groups:
       minor-and-patch:
         update-types: [minor, patch]
+    ignore:
+      # Tienen que ser las mismas versiones que usa yasna: se suben junto con yasna.
+      # En crates 0.x un cambio de minor también rompe compatibilidad.
+      - dependency-name: bit-vec
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      - dependency-name: num-bigint
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
