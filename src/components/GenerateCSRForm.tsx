@@ -340,7 +340,7 @@ export function GenerateCSRForm({
 			});
 
 			toast.success("CSR generado correctamente", {
-				description: "Debes descargar la Private Key y el CSR antes de volver a generar un CSR",
+				description: "Guarda la Private Key y después el CSR antes de generar otro",
 				closeButton: true,
 			});
 		} catch (error) {
@@ -363,7 +363,7 @@ export function GenerateCSRForm({
 			});
 
 			toast.success("CSR generado en el token correctamente", {
-				description: "La llave privada permanece en el token. Descarga el CSR para continuar.",
+				description: "La llave privada permanece en el token. Guarda el CSR para continuar.",
 				closeButton: true,
 			});
 		} catch (error) {
@@ -563,7 +563,7 @@ export function GenerateCSRForm({
 
 							<p className="flex text-xs text-muted-foreground leading-4">
 								<InfoIcon className="w-4 h-4 me-2 shrink-0 mt-px" />
-								La llave privada se genera dentro del token y nunca sale del dispositivo. Solo se podrá descargar el CSR.
+								La llave privada se genera dentro del token y nunca sale del dispositivo. Solo se guardará el CSR.
 							</p>
 
 							<FormField
