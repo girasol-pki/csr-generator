@@ -96,7 +96,7 @@ export function CSRGenerationResult({
 				</div>
 			</div>
 			<pre
-				className="w-[69.5ch] min-h-[50ch] h-fit rounded-md border border-primary bg-transparent focus:outline-none focus:ring-1 focus:ring-ring text-base resize-none overflow-y-auto p-5 pl-6 select-none"
+				className="w-full min-h-[50ch] h-fit rounded-md border border-primary bg-transparent focus:outline-none focus:ring-1 focus:ring-ring text-base resize-none overflow-auto p-5 pl-6 select-none whitespace-pre"
 				contentEditable={false}
 			>
 				{privateKeyWithCSR?.csrPem.trim() ?? "Tu CSR aparecerá aquí"}
