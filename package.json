@@ -6,7 +6,11 @@
 	"type": "module",
 	"scripts": {
 		"dev": "vite",
-		"build": "tsc && vite build",
+		"build": "pnpm typecheck && vite build",
+		"typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.node.json",
+		"lint": "biome ci --error-on-warnings .",
+		"format": "biome check --write .",
+		"test": "vitest run",
 		"preview": "vite preview",
 		"tauri": "tauri"
 	},
