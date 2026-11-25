@@ -1,8 +1,9 @@
 [package]
 name = "girasol-csr-generator"
 version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
+description = "Generador de llave privada y CSR para certificados de agente automatizado"
+authors = ["Girasol PE S.C.R.L."]
+license = "MIT"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
