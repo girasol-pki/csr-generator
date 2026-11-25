@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+import { defineConfig } from "vitest/config";
 import { z } from "zod";
 
 const host = process.env.TAURI_DEV_HOST;
@@ -48,6 +48,13 @@ export default defineConfig(async () => ({
 	resolve: {
 		alias: {
 			"@": path.resolve(import.meta.dirname, "./src"),
+		},
+	},
+	test: {
+		include: ["tests/**/*.test.ts"],
+		coverage: {
+			include: ["src/csr/**"],
+			thresholds: { lines: 80, functions: 80, branches: 80, statements: 80 },
 		},
 	},
 }));

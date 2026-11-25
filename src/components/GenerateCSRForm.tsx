@@ -15,6 +15,17 @@ import { type Dispatch, type SetStateAction, useEffect, useMemo, useState } from
 import { type FieldErrors, useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
+import { parseInvokeError } from "@/csr/invoke-error";
+import {
+	type CSRGenerationParams,
+	csrParamsOf,
+	type FormValues,
+	fieldsToRevalidate,
+	formSchema,
+	isLimitedField,
+	type PKCS11CSRGenerationParams,
+	pkcs11ParamsOf,
+} from "@/csr/subject-form";
 import { cn } from "@/lib/utils";
 import type { PKCS11Slot, PrivateKeyWithCSR } from "@/models";
 import { Button } from "./ui/button";
@@ -26,141 +37,6 @@ type DownloadedStatus = {
 	privateKey: boolean;
 	csr: boolean;
 };
-
-type CSRGenerationParams = {
-	country: string;
-	state: string;
-	locality: string;
-	organization: string;
-	organizationUnit: string;
-	street: string;
-	email: string;
-	commonName: string;
-	modulusLength: number;
-};
-
-type PKCS11CSRGenerationParams = CSRGenerationParams & {
-	driverPath: string;
-	slotId: number;
-	pin: string;
-	keyLabel: string;
-};
-
-// Límites y normalización acordados con girasol-ec: se cuentan puntos de código tras NFC
-// (no unidades UTF-16 ni bytes) sobre el valor final de cada atributo del subject.
-const characterCount = (value: string) => [...value].length;
-
-const normalizeSubjectText = (value: string) => value.normalize("NFC").replace(/\s+/g, " ").trim();
-
-const MAX_STATE_LENGTH = 128;
-
-const MAX_CHARS = {
-	region: MAX_STATE_LENGTH,
-	province: MAX_STATE_LENGTH,
-	district: 128,
-	organization: 128,
-	organizationUnit: 128,
-	street: 256,
-	email: 255,
-	commonName: 128,
-} as const;
-
-type LimitedField = keyof typeof MAX_CHARS;
-
-const isLimitedField = (name: string): name is LimitedField => name in MAX_CHARS;
-
-const withinChars = (max: number) => (value: string, ctx: z.RefinementCtx) => {
-	const count = characterCount(value);
-	if (count > max) {
-		ctx.addIssue({ code: "custom", message: `Máximo ${max} caracteres (tienes ${count})` });
-	}
-};
-
-const subjectText = (max: number) =>
-	z
-		.string()
-		.transform(normalizeSubjectText)
-		.pipe(z.string().min(1, "Este campo es requerido").superRefine(withinChars(max)));
-
-const stateOf = (region: string, province: string) => `${region}-${province}`;
-
-const isStatePart = (name: LimitedField) => name === "region" || name === "province";
-
-const exceedsFieldLimit = (name: LimitedField, value = "") =>
-	characterCount(normalizeSubjectText(value)) > MAX_CHARS[name];
-
-const exceedsStateLimit = (region = "", province = "") => characterCount(stateOf(region, province)) > MAX_STATE_LENGTH;
-
-// Al escribir en `name`: revalida lo que se pasa del límite y lo que ya muestra error, para que el aviso
-// aparezca o desaparezca en el acto.
-function fieldsToRevalidate(
-	name: LimitedField,
-	values: Partial<Record<LimitedField, string>>,
-	isInvalid: (field: LimitedField) => boolean,
-): LimitedField[] {
-	const targets = new Set<LimitedField>();
-	if (exceedsFieldLimit(name, values[name]) || isInvalid(name)) {
-		targets.add(name);
-	}
-	if (isStatePart(name) && (exceedsStateLimit(values.region, values.province) || isInvalid("province"))) {
-		targets.add("province");
-	}
-	return [...targets];
-}
-
-const baseSchema = {
-	country: z.string().length(2),
-	region: subjectText(MAX_CHARS.region),
-	province: subjectText(MAX_CHARS.province),
-	district: subjectText(MAX_CHARS.district),
-	organization: subjectText(MAX_CHARS.organization),
-	organizationUnit: subjectText(MAX_CHARS.organizationUnit),
-	street: subjectText(MAX_CHARS.street),
-	email: z
-		.string()
-		.trim()
-		.pipe(z.email("El email ingresado no es válido").superRefine(withinChars(MAX_CHARS.email))),
-	commonName: subjectText(MAX_CHARS.commonName),
-	modulusLength: z.string().refine((value) => ["2048", "3072"].includes(value), {
-		message: "El tamaño de clave debe ser 2048 o 3072",
-	}),
-};
-
-const formSchema = z
-	.object({
-		...baseSchema,
-		pkcs11Enabled: z.boolean(),
-		driverPath: z.string(),
-		slotId: z.string(),
-		pin: z.string(),
-		keyLabel: z.string(),
-	})
-	.superRefine((values, ctx) => {
-		const state = stateOf(values.region, values.province);
-		if (characterCount(state) > MAX_STATE_LENGTH) {
-			ctx.addIssue({
-				code: "custom",
-				path: ["province"],
-				message: `Región y provincia juntas: máximo ${MAX_STATE_LENGTH} caracteres (tienen ${characterCount(state)})`,
-			});
-		}
-
-		if (!values.pkcs11Enabled) {
-			return;
-		}
-		if (!values.driverPath) {
-			ctx.addIssue({ code: "custom", path: ["driverPath"], message: "Selecciona un driver PKCS#11" });
-		}
-		if (!values.slotId) {
-			ctx.addIssue({ code: "custom", path: ["slotId"], message: "Selecciona un slot" });
-		}
-		if (!values.pin) {
-			ctx.addIssue({ code: "custom", path: ["pin"], message: "Ingresa el PIN del token" });
-		}
-		if (!values.keyLabel || values.keyLabel.trim().length === 0) {
-			ctx.addIssue({ code: "custom", path: ["keyLabel"], message: "Ingresa una etiqueta para la llave" });
-		}
-	});
 
 const generatedPrivateKeyWithCSRSchema = z.object({
 	base64_private_key_pem: z.string(),
@@ -183,63 +59,7 @@ const slotsSchema = z.array(
 	}),
 );
 
-type FormValues = z.infer<typeof formSchema>;
-
-const backendFieldSchema = z.enum([
-	"country",
-	"state",
-	"locality",
-	"organization",
-	"organizationUnit",
-	"street",
-	"email",
-	"commonName",
-	"driverPath",
-	"slotId",
-	"pin",
-]);
-
-// "state" es región y provincia concatenadas; el error se muestra en provincia.
-const formFieldByBackendField: Record<z.infer<typeof backendFieldSchema>, keyof FormValues> = {
-	country: "country",
-	state: "province",
-	locality: "district",
-	organization: "organization",
-	organizationUnit: "organizationUnit",
-	street: "street",
-	email: "email",
-	commonName: "commonName",
-	driverPath: "driverPath",
-	slotId: "slotId",
-	pin: "pin",
-};
-
 const advancedFields: ReadonlyArray<keyof FormValues> = ["modulusLength", "driverPath", "slotId", "pin", "keyLabel"];
-
-const generationErrorSchema = z.discriminatedUnion("kind", [
-	z.object({ kind: z.literal("field"), field: backendFieldSchema, message: z.string() }),
-	z.object({ kind: z.literal("general"), message: z.string() }),
-]);
-
-type InvokeFailure = { kind: "field"; field: keyof FormValues; message: string } | { kind: "general"; message: string };
-
-// Los comandos rechazan con GenerationError; Tauri rechaza con un string si falla antes (p. ej. al deserializar).
-function parseInvokeError(error: unknown): InvokeFailure {
-	const parsed = generationErrorSchema.safeParse(error);
-	if (parsed.success) {
-		const failure = parsed.data;
-		return failure.kind === "field"
-			? { kind: "field", field: formFieldByBackendField[failure.field], message: failure.message }
-			: failure;
-	}
-	if (typeof error === "string") {
-		return { kind: "general", message: error };
-	}
-	if (error instanceof Error) {
-		return { kind: "general", message: error.message };
-	}
-	return { kind: "general", message: "Error desconocido" };
-}
 
 type Props = {
 	className?: string;
@@ -418,29 +238,11 @@ export function GenerateCSRForm({
 		}
 	}
 
-	async function onSubmit(values: z.infer<typeof formSchema>) {
-		const csrData: CSRGenerationParams = {
-			country: values.country,
-			state: stateOf(values.region, values.province),
-			locality: values.district,
-			organization: values.organization,
-			organizationUnit: values.organizationUnit,
-			street: values.street,
-			email: values.email,
-			commonName: values.commonName,
-			modulusLength: Number(values.modulusLength),
-		};
-
+	async function onSubmit(values: FormValues) {
 		if (values.pkcs11Enabled) {
-			await generateCSRPkcs11({
-				...csrData,
-				driverPath: values.driverPath,
-				slotId: Number(values.slotId),
-				pin: values.pin,
-				keyLabel: values.keyLabel.trim(),
-			});
+			await generateCSRPkcs11(pkcs11ParamsOf(values));
 		} else {
-			await generateCSR(csrData);
+			await generateCSR(csrParamsOf(values));
 		}
 		resetDownloadedStatus();
 	}
