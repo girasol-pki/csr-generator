@@ -45,7 +45,13 @@ coincide con la versión o si falta la sección del CHANGELOG.
 **No envíes nada desde Partner Center.** El paquete subido solo se procesa con el commit que hace
 el CI; si envías el borrador desde Partner Center, se publica el paquete anterior.
 
-Para probar el MSIX en local:
+### Capturas de la Store
+
+Viven en `store/screenshots` (1920×1080) y se ordenan y describen en `store/update-screenshots.ts`.
+Para publicarlas: Actions → **Actualizar capturas de la Store** → Run workflow, y aprobar. Crea un
+envío solo con las capturas nuevas y lo manda a certificación.
+
+### Probar el MSIX en local
 
 ```powershell
 pnpm tauri build --no-bundle

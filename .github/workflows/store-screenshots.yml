@@ -1,0 +1,39 @@
+# Reemplaza las capturas de la ficha de la Store por las de store/screenshots y lo envía a
+# certificación. Se lanza a mano desde main (Actions → Run workflow) y pide aprobación.
+#
+# Mismo cuidado que el release: actions fijadas por SHA, sin pull_request, y el job con secrets
+# no instala dependencias (el script solo usa Node).
+name: Actualizar capturas de la Store
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Comparte grupo con el release: dos envíos a la vez chocarían en Partner Center.
+concurrency:
+  group: microsoft-store-release
+  cancel-in-progress: false
+
+jobs:
+  screenshots:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: microsoft-store
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.22.1
+
+      - name: Subir capturas
+        env:
+          TENANT_ID: ${{ secrets.PARTNER_CENTER_TENANT_ID }}
+          CLIENT_ID: ${{ secrets.PARTNER_CENTER_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.PARTNER_CENTER_CLIENT_SECRET }}
+          PRODUCT_ID: ${{ secrets.MSSTORE_PRODUCT_ID }}
+        run: node store/update-screenshots.ts
