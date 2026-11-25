@@ -28,4 +28,4 @@ openssl = { version = "=0.10.82", features = ["vendored"] }
 cryptoki = "=0.12.1"
 yasna = { version = "=0.6.0", features = ["bit-vec", "num-bigint"] }
 bit-vec = "=0.9.1"
-num-bigint = "=0.4.6"
+num-bigint = "=0.4.8"
