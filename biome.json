@@ -57,7 +57,8 @@
 	"javascript": {
 		"formatter": {
 			"quoteStyle": "double"
-		}
+		},
+		"globals": ["__APP_VERSION__", "__APP_RELEASE_DATE__"]
 	},
 	"css": {
 		"parser": {

@@ -1,7 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { format } from "date-fns";
 import { FileSignatureIcon, InfoIcon, KeyIcon } from "lucide-react";
-import { useMemo } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
 import { cn } from "@/lib/utils";
@@ -27,6 +26,9 @@ async function savePemFile(kind: PemKind, fileName: string, contents: string) {
 	}
 }
 
+// Llave y CSR comparten el nombre para reconocer que son pareja.
+const fileStemOf = (result: PrivateKeyWithCSR) => format(result.generatedAt, "yyyyMMddHHmmss");
+
 type Props = {
 	className?: string;
 	privateKeyWithCSR: PrivateKeyWithCSR | null;
@@ -42,8 +44,6 @@ export function CSRGenerationResult({
 	setCSRIsDownloaded,
 	setPrivateKeyIsDownloaded,
 }: Props) {
-	const formattedDownloadName = useMemo(() => format(new Date(), "yyyyMMddHHmmss"), [privateKeyWithCSR]);
-
 	const hasPrivateKey = Boolean(privateKeyWithCSR?.privateKeyPem);
 	const isKeyInToken = privateKeyWithCSR !== null && privateKeyWithCSR.privateKeyPem === null;
 	// Sin la llave el certificado emitido para este CSR no sirve: se guarda primero.
@@ -53,11 +53,8 @@ export function CSRGenerationResult({
 		if (!privateKeyWithCSR?.privateKeyPem) {
 			return;
 		}
-		const outcome = await savePemFile(
-			"privateKey",
-			`${formattedDownloadName}-private.key`,
-			privateKeyWithCSR.privateKeyPem.trim(),
-		);
+		const fileStem = fileStemOf(privateKeyWithCSR);
+		const outcome = await savePemFile("privateKey", `${fileStem}-private.key`, privateKeyWithCSR.privateKeyPem.trim());
 		if (outcome === "cancelled") {
 			return;
 		}
@@ -72,7 +69,11 @@ export function CSRGenerationResult({
 		if (!privateKeyWithCSR) {
 			return;
 		}
-		const outcome = await savePemFile("csr", `${formattedDownloadName}-csr.csr`, privateKeyWithCSR.csrPem.trim());
+		const outcome = await savePemFile(
+			"csr",
+			`${fileStemOf(privateKeyWithCSR)}-csr.csr`,
+			privateKeyWithCSR.csrPem.trim(),
+		);
 		if (outcome === "cancelled") {
 			return;
 		}

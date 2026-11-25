@@ -84,6 +84,30 @@ const subjectText = (max: number) =>
 
 const stateOf = (region: string, province: string) => `${region}-${province}`;
 
+const isStatePart = (name: LimitedField) => name === "region" || name === "province";
+
+const exceedsFieldLimit = (name: LimitedField, value = "") =>
+	characterCount(normalizeSubjectText(value)) > MAX_CHARS[name];
+
+const exceedsStateLimit = (region = "", province = "") => characterCount(stateOf(region, province)) > MAX_STATE_LENGTH;
+
+// Al escribir en `name`: revalida lo que se pasa del límite y lo que ya muestra error, para que el aviso
+// aparezca o desaparezca en el acto.
+function fieldsToRevalidate(
+	name: LimitedField,
+	values: Partial<Record<LimitedField, string>>,
+	isInvalid: (field: LimitedField) => boolean,
+): LimitedField[] {
+	const targets = new Set<LimitedField>();
+	if (exceedsFieldLimit(name, values[name]) || isInvalid(name)) {
+		targets.add(name);
+	}
+	if (isStatePart(name) && (exceedsStateLimit(values.region, values.province) || isInvalid("province"))) {
+		targets.add("province");
+	}
+	return [...targets];
+}
+
 const baseSchema = {
 	country: z.string().length(2),
 	region: subjectText(MAX_CHARS.region),
@@ -276,19 +300,9 @@ export function GenerateCSRForm({
 			if (type !== "change" || !name || !isLimitedField(name)) {
 				return;
 			}
-			const overField = characterCount(normalizeSubjectText(values[name] ?? "")) > MAX_CHARS[name];
-			const isStatePart = name === "region" || name === "province";
-			const overState =
-				isStatePart && characterCount(stateOf(values.region ?? "", values.province ?? "")) > MAX_STATE_LENGTH;
-			const targets = new Set<LimitedField>();
-			if (overField || form.getFieldState(name).invalid) {
-				targets.add(name);
-			}
-			if (overState || (isStatePart && form.getFieldState("province").invalid)) {
-				targets.add("province");
-			}
-			if (targets.size > 0) {
-				void form.trigger([...targets]);
+			const targets = fieldsToRevalidate(name, values, (field) => form.getFieldState(field).invalid);
+			if (targets.length > 0) {
+				void form.trigger(targets);
 			}
 		});
 		return () => subscription.unsubscribe();
@@ -366,6 +380,7 @@ export function GenerateCSRForm({
 			setPrivateKeyWithCSR({
 				privateKeyPem: globalThis.atob(response.base64_private_key_pem),
 				csrPem: globalThis.atob(response.base64_csr_pem),
+				generatedAt: new Date(),
 			});
 
 			toast.success("CSR generado correctamente", {
@@ -389,6 +404,7 @@ export function GenerateCSRForm({
 			setPrivateKeyWithCSR({
 				privateKeyPem: null,
 				csrPem: globalThis.atob(response.base64_csr_pem),
+				generatedAt: new Date(),
 			});
 
 			toast.success("CSR generado en el token correctamente", {

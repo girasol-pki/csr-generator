@@ -1,6 +1,7 @@
 export type PrivateKeyWithCSR = {
 	privateKeyPem: string | null;
 	csrPem: string;
+	generatedAt: Date;
 };
 
 export type PKCS11Slot = {
