@@ -30,10 +30,7 @@ impl Subject<'_> {
         for (field, label, value, max) in attributes {
             let chars = value.chars().count();
             if chars == 0 {
-                return Err(GenerationError::field(
-                    field,
-                    format!("{label} es un campo requerido"),
-                ));
+                return Err(GenerationError::field(field, format!("{label} es un campo requerido")));
             }
             if chars > max {
                 return Err(GenerationError::field(
@@ -44,10 +41,7 @@ impl Subject<'_> {
         }
 
         if !self.email.is_ascii() {
-            return Err(GenerationError::field(
-                Field::Email,
-                "El email solo puede contener caracteres ASCII",
-            ));
+            return Err(GenerationError::field(Field::Email, "El email solo puede contener caracteres ASCII"));
         }
 
         Ok(())
@@ -90,10 +84,7 @@ mod tests {
     #[test]
     fn rejects_an_organization_longer_than_128_characters() {
         let organization = "O".repeat(129);
-        let subject = Subject {
-            organization: &organization,
-            ..valid_subject()
-        };
+        let subject = Subject { organization: &organization, ..valid_subject() };
 
         assert_eq!(
             subject.validate(),
@@ -107,10 +98,7 @@ mod tests {
     #[test]
     fn allows_a_street_up_to_256_characters() {
         let street = "S".repeat(256);
-        let subject = Subject {
-            street: &street,
-            ..valid_subject()
-        };
+        let subject = Subject { street: &street, ..valid_subject() };
 
         assert_eq!(subject.validate(), Ok(()));
     }
@@ -118,43 +106,28 @@ mod tests {
     #[test]
     fn counts_characters_not_bytes() {
         let accented = "Ñ".repeat(128);
-        let subject = Subject {
-            common_name: &accented,
-            ..valid_subject()
-        };
+        let subject = Subject { common_name: &accented, ..valid_subject() };
 
         assert_eq!(subject.validate(), Ok(()));
     }
 
     #[test]
     fn rejects_an_empty_attribute() {
-        let subject = Subject {
-            organization_unit: "",
-            ..valid_subject()
-        };
+        let subject = Subject { organization_unit: "", ..valid_subject() };
 
         assert_eq!(
             subject.validate(),
-            Err(GenerationError::field(
-                Field::OrganizationUnit,
-                "La unidad organizacional es un campo requerido",
-            ))
+            Err(GenerationError::field(Field::OrganizationUnit, "La unidad organizacional es un campo requerido",))
         );
     }
 
     #[test]
     fn rejects_a_non_ascii_email() {
-        let subject = Subject {
-            email: "año@dominio.com",
-            ..valid_subject()
-        };
+        let subject = Subject { email: "año@dominio.com", ..valid_subject() };
 
         assert_eq!(
             subject.validate(),
-            Err(GenerationError::field(
-                Field::Email,
-                "El email solo puede contener caracteres ASCII",
-            ))
+            Err(GenerationError::field(Field::Email, "El email solo puede contener caracteres ASCII",))
         );
     }
 }

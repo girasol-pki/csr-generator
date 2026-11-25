@@ -25,15 +25,10 @@ pub enum GenerationError {
 
 impl GenerationError {
     pub fn field(field: Field, message: impl Into<String>) -> Self {
-        Self::Field {
-            field,
-            message: message.into(),
-        }
+        Self::Field { field, message: message.into() }
     }
 
     pub fn general(message: impl Into<String>) -> Self {
-        Self::General {
-            message: message.into(),
-        }
+        Self::General { message: message.into() }
     }
 }

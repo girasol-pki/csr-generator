@@ -45,11 +45,9 @@ pub fn save_pem_file(
         return Ok(SaveOutcome::Cancelled);
     };
 
-    let path = selected
-        .into_path()
-        .map_err(|e| GenerationError::general(format!("La ruta elegida no es válida: {e}")))?;
-    fs::write(&path, contents)
-        .map_err(|e| GenerationError::general(format!("No se pudo guardar el archivo: {e}")))?;
+    let path =
+        selected.into_path().map_err(|e| GenerationError::general(format!("La ruta elegida no es válida: {e}")))?;
+    fs::write(&path, contents).map_err(|e| GenerationError::general(format!("No se pudo guardar el archivo: {e}")))?;
 
     Ok(SaveOutcome::Saved)
 }

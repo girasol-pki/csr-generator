@@ -71,32 +71,27 @@ pub struct PKCS11CSRResult {
 }
 
 fn init_pkcs11(driver_path: &str) -> Result<Pkcs11, GenerationError> {
-    let pkcs11 = Pkcs11::new(driver_path).map_err(|e| {
-        GenerationError::field(Field::DriverPath, format!("No se pudo cargar el driver PKCS#11: {}", e))
-    })?;
+    let pkcs11 = Pkcs11::new(driver_path)
+        .map_err(|e| GenerationError::field(Field::DriverPath, format!("No se pudo cargar el driver PKCS#11: {e}")))?;
     pkcs11
         .initialize(CInitializeArgs::new(CInitializeFlags::OS_LOCKING_OK))
-        .map_err(|e| {
-            GenerationError::field(Field::DriverPath, format!("No se pudo inicializar PKCS#11: {}", e))
-        })?;
+        .map_err(|e| GenerationError::field(Field::DriverPath, format!("No se pudo inicializar PKCS#11: {e}")))?;
     Ok(pkcs11)
 }
 
 #[tauri::command]
-pub fn list_pkcs11_slots(
-    params: PKCS11SlotsParams,
-) -> Result<Vec<SlotEntry>, GenerationError> {
+pub fn list_pkcs11_slots(params: PKCS11SlotsParams) -> Result<Vec<SlotEntry>, GenerationError> {
     let pkcs11 = init_pkcs11(&params.driver_path)?;
 
     let slots = pkcs11
         .get_slots_with_token()
-        .map_err(|e| GenerationError::general(format!("No se pudieron listar los slots: {}", e)))?;
+        .map_err(|e| GenerationError::general(format!("No se pudieron listar los slots: {e}")))?;
 
     let mut entries = Vec::with_capacity(slots.len());
     for slot in slots {
-        let token_info = pkcs11.get_token_info(slot).map_err(|e| {
-            GenerationError::general(format!("No se pudo obtener información del token: {}", e))
-        })?;
+        let token_info = pkcs11
+            .get_token_info(slot)
+            .map_err(|e| GenerationError::general(format!("No se pudo obtener información del token: {e}")))?;
 
         entries.push(SlotEntry {
             id: slot.id(),
@@ -113,23 +108,21 @@ pub fn list_pkcs11_slots(
 }
 
 #[tauri::command]
-pub fn generate_csr_pkcs11(
-    data: PKCS11CSRGenerationParams,
-) -> Result<PKCS11CSRResult, GenerationError> {
+pub fn generate_csr_pkcs11(data: PKCS11CSRGenerationParams) -> Result<PKCS11CSRResult, GenerationError> {
     data.subject().validate()?;
 
     let pkcs11 = init_pkcs11(&data.driver_path)?;
 
     let slot = Slot::try_from(data.slot_id)
-        .map_err(|e| GenerationError::field(Field::SlotId, format!("Slot inválido: {}", e)))?;
+        .map_err(|e| GenerationError::field(Field::SlotId, format!("Slot inválido: {e}")))?;
 
     let session = pkcs11
         .open_rw_session(slot)
-        .map_err(|e| GenerationError::general(format!("No se pudo abrir sesión en el token: {}", e)))?;
+        .map_err(|e| GenerationError::general(format!("No se pudo abrir sesión en el token: {e}")))?;
 
     session
         .login(UserType::User, Some(&AuthPin::new(data.pin.clone().into())))
-        .map_err(|e| GenerationError::field(Field::Pin, format!("PIN incorrecto o login fallido: {}", e)))?;
+        .map_err(|e| GenerationError::field(Field::Pin, format!("PIN incorrecto o login fallido: {e}")))?;
 
     let modulus_bits = data.modulus_length.unwrap_or(2048);
     let label_bytes = data.key_label.clone().into_bytes();
@@ -156,14 +149,8 @@ pub fn generate_csr_pkcs11(
     ];
 
     let (pub_handle, priv_handle) = session
-        .generate_key_pair(
-            &Mechanism::RsaPkcsKeyPairGen,
-            &public_template,
-            &private_template,
-        )
-        .map_err(|e| {
-            GenerationError::general(format!("No se pudo generar el par de claves en el token: {}", e))
-        })?;
+        .generate_key_pair(&Mechanism::RsaPkcsKeyPairGen, &public_template, &private_template)
+        .map_err(|e| GenerationError::general(format!("No se pudo generar el par de claves en el token: {e}")))?;
 
     let (modulus, public_exponent) = read_rsa_public_components(&session, pub_handle)?;
 
@@ -171,16 +158,12 @@ pub fn generate_csr_pkcs11(
 
     let signature = session
         .sign(&Mechanism::Sha256RsaPkcs, priv_handle, &cert_request_info)
-        .map_err(|e| {
-            GenerationError::general(format!("No se pudo firmar el CSR con el token: {}", e))
-        })?;
+        .map_err(|e| GenerationError::general(format!("No se pudo firmar el CSR con el token: {e}")))?;
 
     let csr_der = build_certification_request(&cert_request_info, &signature);
     let csr_pem = der_to_pem(&csr_der, "CERTIFICATE REQUEST");
 
-    Ok(PKCS11CSRResult {
-        base64_csr_pem: base64::encode_block(csr_pem.as_bytes()),
-    })
+    Ok(PKCS11CSRResult { base64_csr_pem: base64::encode_block(csr_pem.as_bytes()) })
 }
 
 fn read_rsa_public_components(
@@ -188,16 +171,8 @@ fn read_rsa_public_components(
     handle: ObjectHandle,
 ) -> Result<(BigUint, BigUint), GenerationError> {
     let attrs = session
-        .get_attributes(
-            handle,
-            &[AttributeType::Modulus, AttributeType::PublicExponent],
-        )
-        .map_err(|e| {
-            GenerationError::general(format!(
-                "No se pudieron leer los componentes públicos: {}",
-                e
-            ))
-        })?;
+        .get_attributes(handle, &[AttributeType::Modulus, AttributeType::PublicExponent])
+        .map_err(|e| GenerationError::general(format!("No se pudieron leer los componentes públicos: {e}")))?;
 
     let mut modulus: Option<BigUint> = None;
     let mut exponent: Option<BigUint> = None;
@@ -209,10 +184,9 @@ fn read_rsa_public_components(
         }
     }
 
-    let modulus = modulus
-        .ok_or_else(|| GenerationError::general("El token no devolvió el módulo".to_string()))?;
-    let exponent = exponent
-        .ok_or_else(|| GenerationError::general("El token no devolvió el exponente público".to_string()))?;
+    let modulus = modulus.ok_or_else(|| GenerationError::general("El token no devolvió el módulo".to_string()))?;
+    let exponent =
+        exponent.ok_or_else(|| GenerationError::general("El token no devolvió el exponente público".to_string()))?;
 
     Ok((modulus, exponent))
 }
@@ -235,11 +209,7 @@ fn build_subject_name_der(data: &PKCS11CSRGenerationParams) -> Vec<u8> {
         (oid(&[2, 5, 4, 10]), data.organization.as_str(), AttrStringType::Utf8), // O
         (oid(&[2, 5, 4, 11]), data.organization_unit.as_str(), AttrStringType::Utf8), // OU
         (oid(&[2, 5, 4, 9]), data.street.as_str(), AttrStringType::Utf8),       // street
-        (
-            oid(&[1, 2, 840, 113549, 1, 9, 1]),
-            data.email.as_str(),
-            AttrStringType::Ia5,
-        ), // emailAddress
+        (oid(&[1, 2, 840, 113549, 1, 9, 1]), data.email.as_str(), AttrStringType::Ia5), // emailAddress
         (oid(&[2, 5, 4, 3]), data.common_name.as_str(), AttrStringType::Utf8),  // CN
     ];
 
@@ -251,7 +221,7 @@ fn build_subject_name_der(data: &PKCS11CSRGenerationParams) -> Vec<u8> {
                         writer.next().write_oid(attr_oid);
                         match kind {
                             AttrStringType::Printable => {
-                                writer.next().write_printable_string(value)
+                                writer.next().write_printable_string(value);
                             }
                             AttrStringType::Utf8 => writer.next().write_utf8_string(value),
                             AttrStringType::Ia5 => writer.next().write_ia5_string(value),
@@ -278,23 +248,15 @@ fn build_subject_public_key_info_der(modulus: &BigUint, exponent: &BigUint) -> V
     yasna::construct_der(|writer| {
         writer.write_sequence(|writer| {
             writer.next().write_sequence(|writer| {
-                writer
-                    .next()
-                    .write_oid(&oid(&[1, 2, 840, 113549, 1, 1, 1])); // rsaEncryption
+                writer.next().write_oid(&oid(&[1, 2, 840, 113549, 1, 1, 1])); // rsaEncryption
                 writer.next().write_null();
             });
-            writer
-                .next()
-                .write_bitvec(&BitVec::from_bytes(&rsa_public_key));
+            writer.next().write_bitvec(&BitVec::from_bytes(&rsa_public_key));
         });
     })
 }
 
-fn build_cert_request_info(
-    data: &PKCS11CSRGenerationParams,
-    modulus: &BigUint,
-    exponent: &BigUint,
-) -> Vec<u8> {
+fn build_cert_request_info(data: &PKCS11CSRGenerationParams, modulus: &BigUint, exponent: &BigUint) -> Vec<u8> {
     let subject_der = build_subject_name_der(data);
     let spki_der = build_subject_public_key_info_der(modulus, exponent);
 
@@ -304,11 +266,9 @@ fn build_cert_request_info(
             writer.next().write_der(&subject_der);
             writer.next().write_der(&spki_der);
             // attributes [0] IMPLICIT — empty SET wrapped in context tag 0
-            writer
-                .next()
-                .write_tagged_implicit(yasna::Tag::context(0), |writer| {
-                    writer.write_set(|_| {});
-                });
+            writer.next().write_tagged_implicit(yasna::Tag::context(0), |writer| {
+                writer.write_set(|_| {});
+            });
         });
     })
 }
@@ -318,9 +278,7 @@ fn build_certification_request(cert_request_info: &[u8], signature: &[u8]) -> Ve
         writer.write_sequence(|writer| {
             writer.next().write_der(cert_request_info);
             writer.next().write_sequence(|writer| {
-                writer
-                    .next()
-                    .write_oid(&oid(&[1, 2, 840, 113549, 1, 1, 11])); // sha256WithRSAEncryption
+                writer.next().write_oid(&oid(&[1, 2, 840, 113549, 1, 1, 11])); // sha256WithRSAEncryption
                 writer.next().write_null();
             });
             writer.next().write_bitvec(&BitVec::from_bytes(signature));
@@ -331,11 +289,11 @@ fn build_certification_request(cert_request_info: &[u8], signature: &[u8]) -> Ve
 fn der_to_pem(der: &[u8], label: &str) -> String {
     let b64 = base64::encode_block(der);
     let mut out = String::new();
-    out.push_str(&format!("-----BEGIN {}-----\n", label));
+    out.push_str(&format!("-----BEGIN {label}-----\n"));
     for chunk in b64.as_bytes().chunks(64) {
         out.push_str(std::str::from_utf8(chunk).unwrap());
         out.push('\n');
     }
-    out.push_str(&format!("-----END {}-----\n", label));
+    out.push_str(&format!("-----END {label}-----\n"));
     out
 }

@@ -49,11 +49,7 @@ impl CSRGenerationParams {
 }
 
 fn openssl_reason(stack: &ErrorStack) -> &str {
-    stack
-        .errors()
-        .first()
-        .and_then(|error| error.reason())
-        .unwrap_or("error desconocido")
+    stack.errors().first().and_then(openssl::error::Error::reason).unwrap_or("error desconocido")
 }
 
 fn openssl_failure(message: &'static str) -> impl FnOnce(ErrorStack) -> GenerationError {
@@ -66,38 +62,22 @@ pub fn generate_csr(data: CSRGenerationParams) -> Result<PrivateKeyWithCSR, Gene
 
     let key_pair = Rsa::generate(data.modulus_length.unwrap_or(2048))
         .map_err(openssl_failure("No se pudo generar el par de claves"))?;
-    let private_key =
-        PKey::from_rsa(key_pair).map_err(openssl_failure("No se pudo extraer la private key"))?;
+    let private_key = PKey::from_rsa(key_pair).map_err(openssl_failure("No se pudo extraer la private key"))?;
 
-    let mut csr_builder =
-        X509ReqBuilder::new().map_err(openssl_failure("No se pudo crear el generador de CSRs"))?;
-    csr_builder
-        .set_pubkey(&private_key)
-        .map_err(openssl_failure("No se pudo asignar la llave pública al CSR"))?;
+    let mut csr_builder = X509ReqBuilder::new().map_err(openssl_failure("No se pudo crear el generador de CSRs"))?;
+    csr_builder.set_pubkey(&private_key).map_err(openssl_failure("No se pudo asignar la llave pública al CSR"))?;
 
-    let mut subject_name_builder = X509NameBuilder::new()
-        .map_err(openssl_failure("No se pudo crear el generador de nombres"))?;
+    let mut subject_name_builder =
+        X509NameBuilder::new().map_err(openssl_failure("No se pudo crear el generador de nombres"))?;
 
     // Con el tipo ASN.1 explícito OpenSSL no aplica las cotas X.520 (CN/O/OU 64), igual que
     // EJBCA, que tampoco las aplica. Los límites propios los impone Subject::validate.
     // Los tipos son los mismos que OpenSSL elegiría por defecto (string mask utf8only).
     let entries = [
         (Nid::COUNTRYNAME, Asn1Type::PRINTABLESTRING, Field::Country, &data.country, "el país"),
-        (
-            Nid::STATEORPROVINCENAME,
-            Asn1Type::UTF8STRING,
-            Field::State,
-            &data.state,
-            "la región y provincia",
-        ),
+        (Nid::STATEORPROVINCENAME, Asn1Type::UTF8STRING, Field::State, &data.state, "la región y provincia"),
         (Nid::LOCALITYNAME, Asn1Type::UTF8STRING, Field::Locality, &data.locality, "el distrito"),
-        (
-            Nid::ORGANIZATIONNAME,
-            Asn1Type::UTF8STRING,
-            Field::Organization,
-            &data.organization,
-            "la organización",
-        ),
+        (Nid::ORGANIZATIONNAME, Asn1Type::UTF8STRING, Field::Organization, &data.organization, "la organización"),
         (
             Nid::ORGANIZATIONALUNITNAME,
             Asn1Type::UTF8STRING,
@@ -107,41 +87,26 @@ pub fn generate_csr(data: CSRGenerationParams) -> Result<PrivateKeyWithCSR, Gene
         ),
         (Nid::STREETADDRESS, Asn1Type::UTF8STRING, Field::Street, &data.street, "la dirección"),
         (Nid::PKCS9_EMAILADDRESS, Asn1Type::IA5STRING, Field::Email, &data.email, "el email"),
-        (
-            Nid::COMMONNAME,
-            Asn1Type::UTF8STRING,
-            Field::CommonName,
-            &data.common_name,
-            "el nombre común",
-        ),
+        (Nid::COMMONNAME, Asn1Type::UTF8STRING, Field::CommonName, &data.common_name, "el nombre común"),
     ];
     for (nid, asn1_type, field, value, label) in entries {
-        subject_name_builder
-            .append_entry_by_nid_with_type(nid, value, asn1_type)
-            .map_err(|stack| {
-                GenerationError::field(
-                    field,
-                    format!("No se pudo agregar {label} al CSR: {}", openssl_reason(&stack)),
-                )
-            })?;
+        subject_name_builder.append_entry_by_nid_with_type(nid, value, asn1_type).map_err(|stack| {
+            GenerationError::field(field, format!("No se pudo agregar {label} al CSR: {}", openssl_reason(&stack)))
+        })?;
     }
 
     let subject_name = subject_name_builder.build();
     csr_builder
         .set_subject_name(&subject_name)
         .map_err(openssl_failure("No se pudo agregar el nombre del sujeto al CSR"))?;
-    csr_builder
-        .sign(&private_key, MessageDigest::sha256())
-        .map_err(openssl_failure("No se pudo firmar el CSR"))?;
+    csr_builder.sign(&private_key, MessageDigest::sha256()).map_err(openssl_failure("No se pudo firmar el CSR"))?;
 
     let csr = csr_builder.build();
 
     let private_key_pem = private_key
         .private_key_to_pem_pkcs8()
         .map_err(openssl_failure("No se pudo convertir la private key al formato PEM"))?;
-    let csr_pem = csr
-        .to_pem()
-        .map_err(openssl_failure("No se pudo convertir el CSR a formato PEM"))?;
+    let csr_pem = csr.to_pem().map_err(openssl_failure("No se pudo convertir el CSR a formato PEM"))?;
 
     Ok(PrivateKeyWithCSR {
         base64_private_key_pem: base64::encode_block(&private_key_pem),
@@ -159,12 +124,12 @@ mod tests {
             country: "PE".to_string(),
             state: "Lima-Lima".to_string(),
             locality: "Jesús María".to_string(),
-            organization: "ORGANISMO ESPECIALIZADO PARA LAS CONTRATACIONES PÚBLICAS EFICIENTES"
-                .to_string(),
+            organization: "ORGANISMO ESPECIALIZADO PARA LAS CONTRATACIONES PÚBLICAS EFICIENTES".to_string(),
             organization_unit: "Oficina de Tecnologías de la Información".to_string(),
             street: "Av. Gregorio Escobedo Cdra. 7 Nro. S/N".to_string(),
             email: "soporte@dominio.pe".to_string(),
-            common_name: "Agente automatizado - ORGANISMO ESPECIALIZADO PARA LAS CONTRATACIONES PÚBLICAS EFICIENTES".to_string(),
+            common_name: "Agente automatizado - ORGANISMO ESPECIALIZADO PARA LAS CONTRATACIONES PÚBLICAS EFICIENTES"
+                .to_string(),
             modulus_length: Some(2048),
         }
     }
@@ -198,10 +163,7 @@ mod tests {
     #[test]
     fn generates_a_csr_with_a_common_name_at_the_128_character_limit() {
         let common_name = "Ñ".repeat(128);
-        let csr = generated_csr(CSRGenerationParams {
-            common_name: common_name.clone(),
-            ..oece_params()
-        });
+        let csr = generated_csr(CSRGenerationParams { common_name: common_name.clone(), ..oece_params() });
 
         assert_eq!(subject_entry(&csr, Nid::COMMONNAME), common_name);
     }
