@@ -1,42 +1,50 @@
-import { Dispatch, SetStateAction, useEffect, useMemo, useState } from "react";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "./ui/form";
-import { ChevronDownIcon, ChevronRightIcon, FolderOpenIcon, InfoIcon, LoaderIcon, RefreshCwIcon, SlidersHorizontalIcon, ZapIcon } from "lucide-react";
-
-import { Button } from "./ui/button"
-import { Input } from "./ui/input";
-import { PKCS11Slot, PrivateKeyWithCSR } from "@/models";
-import { cn } from "@/lib/utils";
+import { zodResolver } from "@hookform/resolvers/zod";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
+import {
+	ChevronDownIcon,
+	ChevronRightIcon,
+	FolderOpenIcon,
+	InfoIcon,
+	LoaderIcon,
+	RefreshCwIcon,
+	SlidersHorizontalIcon,
+	ZapIcon,
+} from "lucide-react";
+import { type Dispatch, type SetStateAction, useEffect, useMemo, useState } from "react";
+import { type FieldErrors, useForm } from "react-hook-form";
 import { toast } from "sonner";
-import { FieldErrors, useForm } from "react-hook-form"
-import { z } from "zod"
-import { zodResolver } from "@hookform/resolvers/zod"
+import { z } from "zod";
+import { cn } from "@/lib/utils";
+import type { PKCS11Slot, PrivateKeyWithCSR } from "@/models";
+import { Button } from "./ui/button";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "./ui/form";
+import { Input } from "./ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 
 type DownloadedStatus = {
-	privateKey: boolean,
-	csr: boolean,
-}
+	privateKey: boolean;
+	csr: boolean;
+};
 
 type CSRGenerationParams = {
-	country: string,
-	state: string,
-	locality: string,
-	organization: string,
-	organizationUnit: string,
-	street: string,
-	email: string,
-	commonName: string,
-	modulusLength: number,
-}
+	country: string;
+	state: string;
+	locality: string;
+	organization: string;
+	organizationUnit: string;
+	street: string;
+	email: string;
+	commonName: string;
+	modulusLength: number;
+};
 
 type PKCS11CSRGenerationParams = CSRGenerationParams & {
-	driverPath: string,
-	slotId: number,
-	pin: string,
-	keyLabel: string,
-}
+	driverPath: string;
+	slotId: number;
+	pin: string;
+	keyLabel: string;
+};
 
 // Límites y normalización acordados con girasol-ec: se cuentan puntos de código tras NFC
 // (no unidades UTF-16 ni bytes) sobre el valor final de cada atributo del subject.
@@ -63,17 +71,16 @@ const isLimitedField = (name: string): name is LimitedField => name in MAX_CHARS
 
 const withinChars = (max: number) => (value: string, ctx: z.RefinementCtx) => {
 	const count = characterCount(value);
-	if (count > max) ctx.addIssue({ code: "custom", message: `Máximo ${max} caracteres (tienes ${count})` });
+	if (count > max) {
+		ctx.addIssue({ code: "custom", message: `Máximo ${max} caracteres (tienes ${count})` });
+	}
 };
 
 const subjectText = (max: number) =>
-	z.string()
+	z
+		.string()
 		.transform(normalizeSubjectText)
-		.pipe(
-			z.string()
-				.min(1, "Este campo es requerido")
-				.superRefine(withinChars(max)),
-		);
+		.pipe(z.string().min(1, "Este campo es requerido").superRefine(withinChars(max)));
 
 const stateOf = (region: string, province: string) => `${region}-${province}`;
 
@@ -85,14 +92,15 @@ const baseSchema = {
 	organization: subjectText(MAX_CHARS.organization),
 	organizationUnit: subjectText(MAX_CHARS.organizationUnit),
 	street: subjectText(MAX_CHARS.street),
-	email: z.string()
+	email: z
+		.string()
 		.trim()
 		.pipe(z.email("El email ingresado no es válido").superRefine(withinChars(MAX_CHARS.email))),
 	commonName: subjectText(MAX_CHARS.commonName),
 	modulusLength: z.string().refine((value) => ["2048", "3072"].includes(value), {
 		message: "El tamaño de clave debe ser 2048 o 3072",
 	}),
-}
+};
 
 const formSchema = z
 	.object({
@@ -110,45 +118,48 @@ const formSchema = z
 				code: "custom",
 				path: ["province"],
 				message: `Región y provincia juntas: máximo ${MAX_STATE_LENGTH} caracteres (tienen ${characterCount(state)})`,
-			})
+			});
 		}
 
-		if (!values.pkcs11Enabled) return;
+		if (!values.pkcs11Enabled) {
+			return;
+		}
 		if (!values.driverPath) {
-			ctx.addIssue({ code: "custom", path: ["driverPath"], message: "Selecciona un driver PKCS#11" })
+			ctx.addIssue({ code: "custom", path: ["driverPath"], message: "Selecciona un driver PKCS#11" });
 		}
 		if (!values.slotId) {
-			ctx.addIssue({ code: "custom", path: ["slotId"], message: "Selecciona un slot" })
+			ctx.addIssue({ code: "custom", path: ["slotId"], message: "Selecciona un slot" });
 		}
 		if (!values.pin) {
-			ctx.addIssue({ code: "custom", path: ["pin"], message: "Ingresa el PIN del token" })
+			ctx.addIssue({ code: "custom", path: ["pin"], message: "Ingresa el PIN del token" });
 		}
 		if (!values.keyLabel || values.keyLabel.trim().length === 0) {
-			ctx.addIssue({ code: "custom", path: ["keyLabel"], message: "Ingresa una etiqueta para la llave" })
+			ctx.addIssue({ code: "custom", path: ["keyLabel"], message: "Ingresa una etiqueta para la llave" });
 		}
-	})
-
+	});
 
 const generatedPrivateKeyWithCSRSchema = z.object({
 	base64_private_key_pem: z.string(),
 	base64_csr_pem: z.string(),
-})
+});
 
 const generatedCSROnlySchema = z.object({
 	base64_csr_pem: z.string(),
-})
+});
 
-const slotsSchema = z.array(z.object({
-	id: z.number(),
-	label: z.string(),
-	manufacturer: z.string(),
-	model: z.string(),
-	serial_number: z.string(),
-	initialized: z.boolean(),
-	login_required: z.boolean(),
-}))
+const slotsSchema = z.array(
+	z.object({
+		id: z.number(),
+		label: z.string(),
+		manufacturer: z.string(),
+		model: z.string(),
+		serial_number: z.string(),
+		initialized: z.boolean(),
+		login_required: z.boolean(),
+	}),
+);
 
-type FormValues = z.infer<typeof formSchema>
+type FormValues = z.infer<typeof formSchema>;
 
 const backendFieldSchema = z.enum([
 	"country",
@@ -162,7 +173,7 @@ const backendFieldSchema = z.enum([
 	"driverPath",
 	"slotId",
 	"pin",
-])
+]);
 
 // "state" es región y provincia concatenadas; el error se muestra en provincia.
 const formFieldByBackendField: Record<z.infer<typeof backendFieldSchema>, keyof FormValues> = {
@@ -177,18 +188,16 @@ const formFieldByBackendField: Record<z.infer<typeof backendFieldSchema>, keyof 
 	driverPath: "driverPath",
 	slotId: "slotId",
 	pin: "pin",
-}
+};
 
-const advancedFields: ReadonlyArray<keyof FormValues> = ["modulusLength", "driverPath", "slotId", "pin", "keyLabel"]
+const advancedFields: ReadonlyArray<keyof FormValues> = ["modulusLength", "driverPath", "slotId", "pin", "keyLabel"];
 
 const generationErrorSchema = z.discriminatedUnion("kind", [
 	z.object({ kind: z.literal("field"), field: backendFieldSchema, message: z.string() }),
 	z.object({ kind: z.literal("general"), message: z.string() }),
-])
+]);
 
-type InvokeFailure =
-	| { kind: "field", field: keyof FormValues, message: string }
-	| { kind: "general", message: string }
+type InvokeFailure = { kind: "field"; field: keyof FormValues; message: string } | { kind: "general"; message: string };
 
 // Los comandos rechazan con GenerationError; Tauri rechaza con un string si falla antes (p. ej. al deserializar).
 function parseInvokeError(error: unknown): InvokeFailure {
@@ -199,18 +208,22 @@ function parseInvokeError(error: unknown): InvokeFailure {
 			? { kind: "field", field: formFieldByBackendField[failure.field], message: failure.message }
 			: failure;
 	}
-	if (typeof error === "string") return { kind: "general", message: error };
-	if (error instanceof Error) return { kind: "general", message: error.message };
+	if (typeof error === "string") {
+		return { kind: "general", message: error };
+	}
+	if (error instanceof Error) {
+		return { kind: "general", message: error.message };
+	}
 	return { kind: "general", message: "Error desconocido" };
 }
 
 type Props = {
-	className?: string,
-	privateKeyWithCSR: PrivateKeyWithCSR | null,
-	setPrivateKeyWithCSR: Dispatch<SetStateAction<PrivateKeyWithCSR | null>>,
-	downloadedStatus: DownloadedStatus,
-	resetDownloadedStatus: () => void,
-}
+	className?: string;
+	privateKeyWithCSR: PrivateKeyWithCSR | null;
+	setPrivateKeyWithCSR: Dispatch<SetStateAction<PrivateKeyWithCSR | null>>;
+	downloadedStatus: DownloadedStatus;
+	resetDownloadedStatus: () => void;
+};
 
 export function GenerateCSRForm({
 	className,
@@ -220,10 +233,12 @@ export function GenerateCSRForm({
 	resetDownloadedStatus,
 }: Props) {
 	const canGenerateNewCSR = useMemo(() => {
-		if (!privateKeyWithCSR) return true;
+		if (!privateKeyWithCSR) {
+			return true;
+		}
 		const needsPrivate = privateKeyWithCSR.privateKeyPem !== null;
 		return downloadedStatus.csr && (!needsPrivate || downloadedStatus.privateKey);
-	}, [downloadedStatus, privateKeyWithCSR])
+	}, [downloadedStatus, privateKeyWithCSR]);
 
 	//! useTransition doesn't work with Tauri yet
 	// const [isGenerating, startGeneration] = useTransition();
@@ -252,21 +267,29 @@ export function GenerateCSRForm({
 			pin: "",
 			keyLabel: "firmeasy-key",
 		},
-	})
+	});
 
 	// El resto de errores aparece al salir del campo; pasarse del límite se avisa en el acto
 	// para no dejar escribir de más sin aviso.
 	useEffect(() => {
 		const subscription = form.watch((values, { name, type }) => {
-			if (type !== "change" || !name || !isLimitedField(name)) return;
+			if (type !== "change" || !name || !isLimitedField(name)) {
+				return;
+			}
 			const overField = characterCount(normalizeSubjectText(values[name] ?? "")) > MAX_CHARS[name];
 			const isStatePart = name === "region" || name === "province";
-			const overState = isStatePart
-				&& characterCount(stateOf(values.region ?? "", values.province ?? "")) > MAX_STATE_LENGTH;
+			const overState =
+				isStatePart && characterCount(stateOf(values.region ?? "", values.province ?? "")) > MAX_STATE_LENGTH;
 			const targets = new Set<LimitedField>();
-			if (overField || form.getFieldState(name).invalid) targets.add(name);
-			if (overState || (isStatePart && form.getFieldState("province").invalid)) targets.add("province");
-			if (targets.size > 0) void form.trigger([...targets]);
+			if (overField || form.getFieldState(name).invalid) {
+				targets.add(name);
+			}
+			if (overState || (isStatePart && form.getFieldState("province").invalid)) {
+				targets.add("province");
+			}
+			if (targets.size > 0) {
+				void form.trigger([...targets]);
+			}
 		});
 		return () => subscription.unsubscribe();
 	}, [form]);
@@ -283,7 +306,9 @@ export function GenerateCSRForm({
 				{ name: "Todos", extensions: ["*"] },
 			],
 		});
-		if (typeof selected !== "string") return;
+		if (typeof selected !== "string") {
+			return;
+		}
 		form.setValue("driverPath", selected, { shouldValidate: true });
 		form.setValue("slotId", "");
 		setSlots([]);
@@ -291,7 +316,9 @@ export function GenerateCSRForm({
 
 	// Las opciones avanzadas viven en un panel colapsable: si el error es de una de ellas, se abre para que se vea.
 	function revealFieldsWithErrors(fields: ReadonlyArray<keyof FormValues>) {
-		if (fields.some((field) => advancedFields.includes(field))) setAdvancedOpen(true);
+		if (fields.some((field) => advancedFields.includes(field))) {
+			setAdvancedOpen(true);
+		}
 	}
 
 	function reportFailure(title: string, error: unknown) {
@@ -309,7 +336,9 @@ export function GenerateCSRForm({
 
 	async function listSlots() {
 		const path = form.getValues("driverPath");
-		if (!path) return;
+		if (!path) {
+			return;
+		}
 		setIsListingSlots(true);
 		try {
 			const result: PKCS11Slot[] = slotsSchema.parse(
@@ -329,7 +358,7 @@ export function GenerateCSRForm({
 
 	async function generateCSR(data: CSRGenerationParams) {
 		setIsGenerating(true);
-		await new Promise(resolve => setTimeout(resolve, 150));
+		await new Promise((resolve) => setTimeout(resolve, 150));
 
 		try {
 			const response = generatedPrivateKeyWithCSRSchema.parse(await invoke("generate_csr", { data }));
@@ -352,7 +381,7 @@ export function GenerateCSRForm({
 
 	async function generateCSRPkcs11(data: PKCS11CSRGenerationParams) {
 		setIsGenerating(true);
-		await new Promise(resolve => setTimeout(resolve, 150));
+		await new Promise((resolve) => setTimeout(resolve, 150));
 
 		try {
 			const response = generatedCSROnlySchema.parse(await invoke("generate_csr_pkcs11", { data }));
@@ -384,7 +413,7 @@ export function GenerateCSRForm({
 			email: values.email,
 			commonName: values.commonName,
 			modulusLength: Number(values.modulusLength),
-		}
+		};
 
 		if (values.pkcs11Enabled) {
 			await generateCSRPkcs11({
@@ -401,7 +430,7 @@ export function GenerateCSRForm({
 	}
 
 	return (
-		<Form {...form} >
+		<Form {...form}>
 			<form className={cn(className, "space-y-6")} onSubmit={form.handleSubmit(onSubmit, onInvalid)}>
 				<div className="grid grid-cols-10 gap-6">
 					<FormField
@@ -531,9 +560,11 @@ export function GenerateCSRForm({
 						className="flex items-center w-full px-4 py-2 text-sm text-muted-foreground hover:text-foreground select-none"
 						onClick={() => setAdvancedOpen((v) => !v)}
 					>
-						{advancedOpen
-							? <ChevronDownIcon className="w-4 h-4 me-2 shrink-0" />
-							: <ChevronRightIcon className="w-4 h-4 me-2 shrink-0" />}
+						{advancedOpen ? (
+							<ChevronDownIcon className="w-4 h-4 me-2 shrink-0" />
+						) : (
+							<ChevronRightIcon className="w-4 h-4 me-2 shrink-0" />
+						)}
 						<SlidersHorizontalIcon className="w-4 h-4 me-2 shrink-0" />
 						<span>Opciones avanzadas</span>
 					</button>
@@ -552,8 +583,12 @@ export function GenerateCSRForm({
 												</SelectTrigger>
 											</FormControl>
 											<SelectContent>
-												<SelectItem className="text-sm" value="2048">2048 bits (recomendado)</SelectItem>
-												<SelectItem className="text-sm" value="3072">3072 bits</SelectItem>
+												<SelectItem className="text-sm" value="2048">
+													2048 bits (recomendado)
+												</SelectItem>
+												<SelectItem className="text-sm" value="3072">
+													3072 bits
+												</SelectItem>
 											</SelectContent>
 										</Select>
 										<FormMessage />
@@ -595,11 +630,7 @@ export function GenerateCSRForm({
 												<FormLabel>Driver PKCS#11</FormLabel>
 												<div className="flex gap-2">
 													<FormControl>
-														<Input
-															{...field}
-															readOnly
-															placeholder="Selecciona un .dll / .so / .dylib"
-														/>
+														<Input {...field} readOnly placeholder="Selecciona un .dll / .so / .dylib" />
 													</FormControl>
 													<Button type="button" variant="outline" onClick={pickDriver}>
 														<FolderOpenIcon className="w-4 h-4 me-2" />
@@ -618,11 +649,7 @@ export function GenerateCSRForm({
 											<FormItem>
 												<FormLabel>Slot / token</FormLabel>
 												<div className="flex gap-2">
-													<Select
-														onValueChange={field.onChange}
-														value={field.value}
-														disabled={slots.length === 0}
-													>
+													<Select onValueChange={field.onChange} value={field.value} disabled={slots.length === 0}>
 														<FormControl>
 															<SelectTrigger>
 																<SelectValue
@@ -632,11 +659,7 @@ export function GenerateCSRForm({
 														</FormControl>
 														<SelectContent>
 															{slots.map((slot) => (
-																<SelectItem
-																	key={slot.id}
-																	value={String(slot.id)}
-																	className="text-sm"
-																>
+																<SelectItem key={slot.id} value={String(slot.id)} className="text-sm">
 																	[{slot.id}] {slot.label || slot.model || "Token"} — {slot.manufacturer}
 																</SelectItem>
 															))}
@@ -648,9 +671,11 @@ export function GenerateCSRForm({
 														disabled={!driverPath || isListingSlots}
 														onClick={listSlots}
 													>
-														{isListingSlots
-															? <LoaderIcon className="w-4 h-4 me-2 animate-spin" />
-															: <RefreshCwIcon className="w-4 h-4 me-2" />}
+														{isListingSlots ? (
+															<LoaderIcon className="w-4 h-4 me-2 animate-spin" />
+														) : (
+															<RefreshCwIcon className="w-4 h-4 me-2" />
+														)}
 														<span>Listar</span>
 													</Button>
 												</div>
@@ -666,12 +691,7 @@ export function GenerateCSRForm({
 											<FormItem>
 												<FormLabel>PIN del token</FormLabel>
 												<FormControl>
-													<Input
-														{...field}
-														type="password"
-														autoComplete="off"
-														placeholder="••••••"
-													/>
+													<Input {...field} type="password" autoComplete="off" placeholder="••••••" />
 												</FormControl>
 												<FormMessage />
 											</FormItem>
@@ -702,20 +722,19 @@ export function GenerateCSRForm({
 					disabled={isGenerating || (Boolean(privateKeyWithCSR) && !canGenerateNewCSR)}
 					className="flex px-6 dark:text-gray-100 dark:hover:text-gray-50 select-none w-full"
 				>
-					{
-						isGenerating
-							? <LoaderIcon className="w-5 h-5 me-2 shrink-0 animate-spin" />
-							: <ZapIcon className="w-5 h-5 me-2 shrink-0" />
-					}
-					<span className="block text-lg leading-6">
-						{pkcs11Enabled ? "Generar CSR con PKCS#11" : "Generar CSR"}
-					</span>
+					{isGenerating ? (
+						<LoaderIcon className="w-5 h-5 me-2 shrink-0 animate-spin" />
+					) : (
+						<ZapIcon className="w-5 h-5 me-2 shrink-0" />
+					)}
+					<span className="block text-lg leading-6">{pkcs11Enabled ? "Generar CSR con PKCS#11" : "Generar CSR"}</span>
 				</Button>
 				<span className="flex text-sm text-muted leading-4 text-pretty">
 					<InfoIcon className="inline w-4 h-4 shrink-0 me-2" />
-					Al generar el CSR das fe de que los datos ingresados son correctos y que tienes autorización para solicitar un certificado de FirmEasy.
+					Al generar el CSR das fe de que los datos ingresados son correctos y que tienes autorización para solicitar un
+					certificado de FirmEasy.
 				</span>
 			</form>
 		</Form>
-	)
+	);
 }

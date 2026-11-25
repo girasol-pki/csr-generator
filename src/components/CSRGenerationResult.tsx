@@ -1,13 +1,12 @@
-import { FileSignatureIcon, InfoIcon, KeyIcon } from "lucide-react";
-
-import { Button } from "./ui/button";
-import { PrivateKeyWithCSR } from "@/models";
-import { cn } from "@/lib/utils";
-import { toast } from "sonner";
-import { useMemo } from "react";
-import { format } from "date-fns";
 import { invoke } from "@tauri-apps/api/core";
+import { format } from "date-fns";
+import { FileSignatureIcon, InfoIcon, KeyIcon } from "lucide-react";
+import { useMemo } from "react";
+import { toast } from "sonner";
 import { z } from "zod";
+import { cn } from "@/lib/utils";
+import type { PrivateKeyWithCSR } from "@/models";
+import { Button } from "./ui/button";
 
 const saveOutcomeSchema = z.enum(["saved", "cancelled"]);
 
@@ -29,12 +28,12 @@ async function savePemFile(kind: PemKind, fileName: string, contents: string) {
 }
 
 type Props = {
-	className?: string,
-	privateKeyWithCSR: PrivateKeyWithCSR | null,
-	privateKeyDownloaded: boolean,
-	setPrivateKeyIsDownloaded: () => void,
-	setCSRIsDownloaded: () => void,
-}
+	className?: string;
+	privateKeyWithCSR: PrivateKeyWithCSR | null;
+	privateKeyDownloaded: boolean;
+	setPrivateKeyIsDownloaded: () => void;
+	setCSRIsDownloaded: () => void;
+};
 
 export function CSRGenerationResult({
 	className,
@@ -43,10 +42,7 @@ export function CSRGenerationResult({
 	setCSRIsDownloaded,
 	setPrivateKeyIsDownloaded,
 }: Props) {
-	const formattedDownloadName = useMemo(
-		() => format(new Date(), "yyyyMMddHHmmss"),
-		[privateKeyWithCSR]
-	);
+	const formattedDownloadName = useMemo(() => format(new Date(), "yyyyMMddHHmmss"), [privateKeyWithCSR]);
 
 	const hasPrivateKey = Boolean(privateKeyWithCSR?.privateKeyPem);
 	const isKeyInToken = privateKeyWithCSR !== null && privateKeyWithCSR.privateKeyPem === null;
@@ -54,9 +50,17 @@ export function CSRGenerationResult({
 	const mustSavePrivateKeyFirst = hasPrivateKey && !privateKeyDownloaded;
 
 	async function savePrivateKey() {
-		if (!privateKeyWithCSR?.privateKeyPem) return;
-		const outcome = await savePemFile("privateKey", `${formattedDownloadName}-private.key`, privateKeyWithCSR.privateKeyPem.trim());
-		if (outcome === "cancelled") return;
+		if (!privateKeyWithCSR?.privateKeyPem) {
+			return;
+		}
+		const outcome = await savePemFile(
+			"privateKey",
+			`${formattedDownloadName}-private.key`,
+			privateKeyWithCSR.privateKeyPem.trim(),
+		);
+		if (outcome === "cancelled") {
+			return;
+		}
 		setPrivateKeyIsDownloaded();
 		toast.success("Private Key guardada correctamente", {
 			description: "Guárdala en un lugar seguro: la necesitarás para usar el certificado",
@@ -65,9 +69,13 @@ export function CSRGenerationResult({
 	}
 
 	async function saveCSR() {
-		if (!privateKeyWithCSR) return;
+		if (!privateKeyWithCSR) {
+			return;
+		}
 		const outcome = await savePemFile("csr", `${formattedDownloadName}-csr.csr`, privateKeyWithCSR.csrPem.trim());
-		if (outcome === "cancelled") return;
+		if (outcome === "cancelled") {
+			return;
+		}
 		setCSRIsDownloaded();
 		toast.success("CSR guardado correctamente", {
 			description: "Envía este archivo a FirmEasy para solicitar tu certificado",
@@ -82,9 +90,12 @@ export function CSRGenerationResult({
 			: "La Private Key firma el CSR y no la debes compartir con nadie";
 
 	return (
-		<section className={cn(className, "space-y-6 h-full grid")} style={{
-			gridTemplateRows: "min-content min-content 1fr",
-		}}>
+		<section
+			className={cn(className, "space-y-6 h-full grid")}
+			style={{
+				gridTemplateRows: "min-content min-content 1fr",
+			}}
+		>
 			<div className="space-y-3">
 				<p className="flex text-sm text-amber-600 dark:text-amber-400 font-semibold w-full justify-center leading-4 grow">
 					<InfoIcon className="w-4 h-4 shrink-0 me-2" />
@@ -97,9 +108,7 @@ export function CSRGenerationResult({
 						onClick={savePrivateKey}
 					>
 						<KeyIcon className="w-5 h-5 me-2 shrink-0" />
-						<span className="block text-base leading-6">
-							{isKeyInToken ? "Llave en token" : "Guardar Private Key"}
-						</span>
+						<span className="block text-base leading-6">{isKeyInToken ? "Llave en token" : "Guardar Private Key"}</span>
 					</Button>
 					<Button
 						className="bg-primary hover:bg-primary/90 flex px-6 dark:text-gray-100 dark:hover:text-gray-50 select-none w-56"
@@ -118,5 +127,5 @@ export function CSRGenerationResult({
 				{privateKeyWithCSR?.csrPem.trim() ?? "Tu CSR aparecerá aquí"}
 			</pre>
 		</section>
-	)
+	);
 }

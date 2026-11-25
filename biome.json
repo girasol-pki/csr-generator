@@ -1,0 +1,75 @@
+{
+	"$schema": "https://biomejs.dev/schemas/2.6.8/schema.json",
+	"vcs": {
+		"enabled": true,
+		"clientKind": "git",
+		"useIgnoreFile": true
+	},
+	"files": {
+		"includes": ["**", "!!**/dist"]
+	},
+	"formatter": {
+		"enabled": true,
+		"indentStyle": "tab",
+		"lineWidth": 120
+	},
+	"linter": {
+		"enabled": true,
+		"domains": {
+			"react": "recommended",
+			"project": "recommended",
+			"test": "all"
+		},
+		"rules": {
+			"preset": "recommended",
+			"style": {
+				"useBlockStatements": "error",
+				"useImportType": "error",
+				"noParameterAssign": "error",
+				"useConst": "error",
+				"useTemplate": "error",
+				"noNonNullAssertion": "error",
+				"useSelfClosingElements": "error",
+				"noUselessElse": "error",
+				"useShorthandFunctionType": "error",
+				"useForOf": "error"
+			},
+			"suspicious": {
+				"noConsole": "error",
+				"noShadow": "error",
+				"noExplicitAny": "error",
+				"noEvolvingTypes": "error"
+			},
+			"complexity": {
+				"noExcessiveCognitiveComplexity": "error",
+				"noUselessFragments": "error"
+			},
+			"correctness": {
+				"noUnusedVariables": "error",
+				"noUnusedImports": "error",
+				"noUndeclaredVariables": "error"
+			},
+			"security": {
+				"noBlankTarget": "error"
+			}
+		}
+	},
+	"javascript": {
+		"formatter": {
+			"quoteStyle": "double"
+		}
+	},
+	"css": {
+		"parser": {
+			"tailwindDirectives": true
+		}
+	},
+	"assist": {
+		"enabled": true,
+		"actions": {
+			"source": {
+				"organizeImports": "on"
+			}
+		}
+	}
+}

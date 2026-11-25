@@ -1,38 +1,32 @@
 {
-  "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Girasol CSR Generator",
-  "version": "../package.json",
-  "identifier": "com.girasol-csr-generator.app",
-  "build": {
-    "beforeDevCommand": "pnpm dev",
-    "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "pnpm build",
-    "frontendDist": "../dist"
-  },
-  "app": {
-    "windows": [
-      {
-        "title": "Girasol CSR Generator",
-        "minWidth": 1100,
-        "minHeight": 745
-      }
-    ],
-    "security": {
-      "csp": null
-    }
-  },
-  "bundle": {
-    "active": true,
-    "targets": "all",
-    "icon": [
-      "icons/32x32.png",
-      "icons/128x128.png",
-      "icons/128x128@2x.png",
-      "icons/icon.icns",
-      "icons/icon.ico"
-    ],
-    "windows": {
-      "signCommand": "signtool sign /fd sha256 /a /tr http://timestamp.comodoca.com /td sha256 %1"
-    }
-  }
+	"$schema": "https://schema.tauri.app/config/2",
+	"productName": "Girasol CSR Generator",
+	"version": "../package.json",
+	"identifier": "com.girasol-csr-generator.app",
+	"build": {
+		"beforeDevCommand": "pnpm dev",
+		"devUrl": "http://localhost:1420",
+		"beforeBuildCommand": "pnpm build",
+		"frontendDist": "../dist"
+	},
+	"app": {
+		"windows": [
+			{
+				"title": "Girasol CSR Generator",
+				"minWidth": 1100,
+				"minHeight": 745
+			}
+		],
+		"security": {
+			"csp": null
+		}
+	},
+	"bundle": {
+		"active": true,
+		"targets": "all",
+		"icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
+		"windows": {
+			"signCommand": "signtool sign /fd sha256 /a /tr http://timestamp.comodoca.com /td sha256 %1"
+		}
+	}
 }
