@@ -12,7 +12,18 @@ Requisitos: Node 24, pnpm 11, Rust 1.99 (MSVC). En Windows, el OpenSSL vendored 
 ```sh
 pnpm install
 pnpm tauri dev
-cd src-tauri && cargo test --release --lib
+```
+
+Lo mismo que corre el CI:
+
+```sh
+pnpm lint          # Biome (pnpm format para corregir)
+pnpm typecheck
+pnpm test          # Vitest, con mínimo de 80 % de cobertura en src/csr
+cd src-tauri
+cargo fmt --check
+cargo clippy --release --lib --locked --all-targets -- -D warnings
+cargo test --release --lib
 ```
 
 Las dependencias van en versión exacta, y pnpm solo instala versiones publicadas hace al menos

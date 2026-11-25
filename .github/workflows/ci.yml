@@ -28,6 +28,18 @@ jobs:
 
       - uses: ./.github/actions/setup
 
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+
+      - name: Formato de Rust
+        working-directory: src-tauri
+        run: cargo fmt --check
+
+      - name: Clippy
+        working-directory: src-tauri
+        run: cargo clippy --release --lib --locked --all-targets -- -D warnings
+
       # Mismo perfil (release) y mismos pasos que el release para que la caché le sirva.
       - name: Tests de Rust
         working-directory: src-tauri
